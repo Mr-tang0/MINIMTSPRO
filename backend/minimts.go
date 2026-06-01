@@ -1,10 +1,13 @@
 package backend
 
 import (
-	"context"
 	"encoding/binary"
+	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -18,7 +21,6 @@ type Status struct {
 	Strain      float64 `json:"strain"`      // 当前应变值
 	VideoDisp   float64 `json:"videoDisp"`   // 当前视频位移值
 	VideoStrain float64 `json:"videoStrain"` // 当前视频应变值
-	Temp        float64 `json:"temp"`        // 当前温度
 	Limit       int     `json:"limit"`       // 当前限位（0-无，1-端口1，2-端口2）
 	Time        float64 `json:"time"`        // 实验时间，单位秒
 }
@@ -32,24 +34,24 @@ type MINIMTSService struct {
 	comm *SerialCommunicator // 串口通讯器
 
 	user    *User
-	project *Project
-	system  *System
-	ctx     context.Context
+	project *ProjectService
+	system  *SystemService
 	app     *application.App // Wails 应用实例
 
-	zeroDisp float64 // 零位位移值，用于计算相对位移
-	zeroLoad float64 // 零位载荷值，用于计算相对载荷
+	zeroDisp         float64 // 零位位移值，用于计算相对位移
+	zeroLoad         float64 // 零位载荷值，用于计算相对载荷
+	zeroVideoDisp    float64 // 零位视频位移值，用于计算相对视频位移
+	displayDirection int     // 显示方向，1-正常，-1-反向
 
 	isPolling bool      // 标记是否正在后台轮询
 	startTime time.Time // 开始时间，用于计算实验时间
+
+	cameraWin *application.WebviewWindow
+	dataCache map[string][]float64 // 缓存数据
 }
 
-func NewMINIMTSService() *MINIMTSService {
-	ctx := context.Background()
-	system := NewSystem()
-	system.SetContext(ctx)
-	user := User{}
-	project := NewProject(&user)
+func NewMINIMTSService(system *SystemService, project *ProjectService, user *User) *MINIMTSService {
+	project.SetUser(user)
 
 	return &MINIMTSService{
 		MTSStatus: Status{
@@ -59,20 +61,65 @@ func NewMINIMTSService() *MINIMTSService {
 			Strain:      0,
 			VideoDisp:   0,
 			VideoStrain: 0,
-			Temp:        0,
 			Limit:       0,
+			Time:        0,
 		},
-		ctx:       ctx,
-		system:    system,
-		user:      &user,
-		project:   project,
-		startTime: time.Now(),
+		dataCache:        make(map[string][]float64),
+		system:           system,
+		user:             user,
+		project:          project,
+		startTime:        time.Now(),
+		displayDirection: 1,
 	}
 }
 
 func (m *MINIMTSService) SetApp(app *application.App) {
 	m.app = app
 }
+
+// *************************************界面管理区 开始*************************************
+func (m *MINIMTSService) CallHIKCameraWindow() error {
+	app := application.Get()
+	if app == nil {
+		return fmt.Errorf("application not initialized")
+	}
+
+	// ✨ 核心修复 1：如果窗口指针不为空，说明它只是被隐藏在后台，直接唤醒
+	if m.cameraWin != nil {
+		err := m.cameraWin.Show()
+		if err != nil {
+			fmt.Printf("尝试显示隐藏窗口失败: %v, 正在尝试重新创建...\n", err)
+			m.cameraWin = nil // 只有在窗口崩溃或被用户点×彻底关闭时才置空
+		} else {
+			m.cameraWin.Focus() // 将窗口提到最前并获取焦点
+			return nil
+		}
+	}
+
+	// 创建新窗口（只有在第一次打开，或被彻底销毁后才会走到这里）
+	m.cameraWin = app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:  "Camera",
+		Width:  1200,
+		Height: 900,
+		Mac: application.MacWindow{
+			InvisibleTitleBarHeight: 50,
+			Backdrop:                application.MacBackdropTranslucent,
+			TitleBar:                application.MacTitleBarHiddenInset,
+		},
+		BackgroundColour: application.NewRGB(27, 38, 54),
+		URL:              "/camera",
+	})
+
+	return nil
+}
+
+func (m *MINIMTSService) CloseHIKCameraWindow() {
+	if m.cameraWin != nil {
+		m.cameraWin.Hide() // ✨ 核心修复 2：仅仅原生隐藏，绝对不要执行 m.cameraWin = nil
+	}
+}
+
+//*************************************界面管理区 结束*************************************
 
 func (m *MINIMTSService) GetMINIMTSDevices() []string {
 	fmt.Println("GetMINIMTSDevices")
@@ -143,7 +190,7 @@ func (m *MINIMTSService) Polling() {
 
 	//错误累计器
 	ErrorCounts := make(map[string]int)
-	SencorsEnable := map[string]bool{"load": true, "temp": true, "disp": true, "limit": true}
+	SencorsEnable := map[string]bool{"load": true, "disp": true, "limit": true}
 
 	ErrorCounter := func(sensor string, err error) {
 		if err == nil {
@@ -154,6 +201,7 @@ func (m *MINIMTSService) Polling() {
 			// 如果错误累计次数达到阈值，该传感器被禁用,除非重新连接，协程重启
 			if ErrorCounts[sensor] >= 3 {
 				fmt.Println("传感器", sensor, "已禁用")
+				m.app.Event.Emit("system_message", "传感器"+sensor+"已禁用")
 				SencorsEnable[sensor] = false
 			}
 		}
@@ -179,15 +227,16 @@ func (m *MINIMTSService) Polling() {
 		if SencorsEnable["load"] {
 			ErrorCounter("load", m.updateLoadData())
 		}
-		if SencorsEnable["temp"] {
-			ErrorCounter("temp", m.updateTempData())
-		}
 		if SencorsEnable["limit"] {
 			ErrorCounter("limit", m.updateLimitStatus())
 		}
+		m.MTSStatus.Time = float64((time.Now().UnixMilli() - m.startTime.UnixMilli())) / 1000.0
+
+		//保存到数据缓存
+		m.SaveDataToCache()
 
 		// 每25ms更新一次数据
-		time.Sleep(25 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 	}
 
 }
@@ -196,17 +245,204 @@ func (m *MINIMTSService) Polling() {
 func (m *MINIMTSService) UIPolling() {
 	for m.isPolling {
 		m.statusMu.RLock()
-		m.MTSStatus.Time = float64((time.Now().UnixMilli() - m.startTime.UnixMilli())) / 1000.0
 		m.app.Event.Emit("update_status", m.MTSStatus)
 		m.statusMu.RUnlock()
 		time.Sleep(100 * time.Millisecond)
 	}
 }
 
+func (m *MINIMTSService) SaveDataToCache() {
+	m.statusMu.RLock()
+	defer m.statusMu.RUnlock()
+
+	// 将当前状态数据添加到缓存
+	if m.dataCache == nil {
+		m.dataCache = make(map[string][]float64)
+	}
+
+	// 添加时间、载荷、应力、位移、应变、视频位移、视频应变数据
+	m.dataCache["time"] = append(m.dataCache["time"], m.MTSStatus.Time)
+	m.dataCache["load"] = append(m.dataCache["load"], m.MTSStatus.Load)
+	m.dataCache["stress"] = append(m.dataCache["stress"], m.MTSStatus.Stress)
+	m.dataCache["disp"] = append(m.dataCache["disp"], m.MTSStatus.Disp)
+	m.dataCache["strain"] = append(m.dataCache["strain"], m.MTSStatus.Strain)
+	m.dataCache["videoDisp"] = append(m.dataCache["videoDisp"], m.MTSStatus.VideoDisp)
+	m.dataCache["videoStrain"] = append(m.dataCache["videoStrain"], m.MTSStatus.VideoStrain)
+}
+
+func (m *MINIMTSService) ClearDataCache() error {
+	m.statusMu.Lock()
+	defer m.statusMu.Unlock()
+	// 清空所有缓存数据
+	m.dataCache = make(map[string][]float64)
+	m.startTime = time.Now()
+	return nil
+}
+
+func (m *MINIMTSService) SaveDataTCsv() error {
+	filePath := m.project.ActiveConfig.FilePath
+	fileName := m.project.ActiveConfig.FileName
+
+	if filePath == "" {
+		return fmt.Errorf("文件路径不能为空")
+	}
+	if fileName == "" {
+		return fmt.Errorf("文件名称不能为空")
+	}
+
+	// 确保目录存在
+	if err := os.MkdirAll(filePath, 0755); err != nil {
+		return fmt.Errorf("创建目录失败: %v", err)
+	}
+
+	// 生成唯一的 CSV 文件名
+	csvPath := getUniqueFilePath(filePath, fileName, ".csv")
+
+	// 生成唯一的 JSON 文件名
+	jsonPath := getUniqueFilePath(filePath, fileName+"_config", ".json")
+
+	// 写入 CSV 文件
+	if err := m.writeCSV(csvPath); err != nil {
+		return fmt.Errorf("写入 CSV 文件失败: %v", err)
+	}
+	fmt.Printf("CSV 文件已保存至: %s\n", csvPath)
+
+	// 写入 JSON 配置文件
+	if err := m.writeConfigJSON(jsonPath); err != nil {
+		return fmt.Errorf("写入 JSON 配置文件失败: %v", err)
+	}
+	fmt.Printf("JSON 配置文件已保存至: %s\n", jsonPath)
+
+	return nil
+}
+
+// getUniqueFilePath 生成唯一的文件路径，处理文件名冲突
+func getUniqueFilePath(dir, baseName, ext string) string {
+	counter := 0
+	var filePath string
+
+	for {
+		if counter == 0 {
+			filePath = filepath.Join(dir, baseName+ext)
+		} else {
+			filePath = filepath.Join(dir, fmt.Sprintf("%s(%d)%s", baseName, counter, ext))
+		}
+
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			break
+		}
+		counter++
+	}
+
+	return filePath
+}
+
+// writeCSV 将 dataCache 写入 CSV 文件
+func (m *MINIMTSService) writeCSV(path string) error {
+	m.statusMu.RLock()
+	defer m.statusMu.RUnlock()
+
+	if len(m.dataCache) == 0 {
+		return fmt.Errorf("数据缓存为空")
+	}
+
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// 获取所有 key 作为表头
+	headers := make([]string, 0, len(m.dataCache))
+	for key := range m.dataCache {
+		headers = append(headers, key)
+	}
+
+	// 写入表头
+	writer := csv.NewWriter(file)
+	if err := writer.Write(headers); err != nil {
+		return err
+	}
+
+	// 确定最大行数
+	maxLen := 0
+	for _, values := range m.dataCache {
+		if len(values) > maxLen {
+			maxLen = len(values)
+		}
+	}
+
+	// 逐行写入数据
+	for i := 0; i < maxLen; i++ {
+		row := make([]string, len(headers))
+		for j, key := range headers {
+			values := m.dataCache[key]
+			if i < len(values) {
+				row[j] = fmt.Sprintf("%.6f", values[i])
+			} else {
+				row[j] = ""
+			}
+		}
+		if err := writer.Write(row); err != nil {
+			return err
+		}
+	}
+
+	writer.Flush()
+	return writer.Error()
+}
+
+// writeConfigJSON 将项目配置和系统配置写入 JSON 文件
+func (m *MINIMTSService) writeConfigJSON(path string) error {
+	type CombinedConfig struct {
+		ProjectConfig *ProjectConfig `json:"projectConfig"`
+		SystemConfig  *SystemConfig  `json:"systemConfig"`
+	}
+
+	combined := CombinedConfig{
+		ProjectConfig: m.project.ActiveConfig,
+		SystemConfig:  m.system.config,
+	}
+
+	data, err := json.MarshalIndent(combined, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, data, 0644)
+}
+
+// CallDataToZero 数据归零函数
+func (m *MINIMTSService) CallDataToZero(dataType string) error {
+	m.statusMu.Lock()
+	defer m.statusMu.Unlock()
+
+	switch dataType {
+	case "load":
+		// 更新 zeroLoad 为当前载荷值
+		m.zeroLoad += m.MTSStatus.Load
+		fmt.Printf("载荷归零: zeroLoad = %.6f\n", m.zeroLoad)
+	case "disp":
+		// 更新 zeroDisp 为当前位移值
+		m.zeroDisp += m.MTSStatus.Disp
+		fmt.Printf("位移归零: zeroDisp = %.6f\n", m.zeroDisp)
+	case "videoDisp":
+		m.zeroVideoDisp += m.MTSStatus.VideoDisp
+		fmt.Printf("视频位移归零: zeroVideoDisp = %.6f\n", m.zeroVideoDisp)
+	case "time":
+		m.startTime = time.Now()
+		fmt.Printf("时间归零: startTime = %v\n", m.startTime)
+
+	default:
+		return fmt.Errorf("invalid data type: %s", dataType)
+	}
+	return nil
+}
+
 // updateMotorPosition 针对电机协议 0x3e 92 的精准读取
 // 3E 92 01 00 D1
 func (m *MINIMTSService) updateMotorPosition() error {
-	cmd := []byte{0x3e, 0x92, m.system.MotorID, 0x00}
+	cmd := []byte{0x3e, 0x92, m.system.config.MotorID, 0x00}
 
 	resp, err := m.comm.Send3EBus(cmd, 14, 0x3e)
 	if err != nil {
@@ -217,12 +453,12 @@ func (m *MINIMTSService) updateMotorPosition() error {
 		dataPart := resp[5:13]
 		motorAngle := int64(binary.LittleEndian.Uint64(dataPart))
 		length := float64(motorAngle) / 100.0
-		trueVal := float64(m.system.MotorDirection) * length / m.system.MotorResolution
+		trueVal := float64(m.system.config.MotorDirection) * length / m.system.config.MotorResolution
 
 		// 写入缓存
 		m.statusMu.Lock()
-		m.MTSStatus.Disp = trueVal
-		m.MTSStatus.Strain = trueVal / m.project.ActiveConfig.SectionLength
+		m.MTSStatus.Disp = (trueVal - m.zeroDisp) * float64(m.displayDirection)
+		m.MTSStatus.Strain = (trueVal - m.zeroDisp) / m.project.ActiveConfig.SectionLength
 		if Debug {
 			fmt.Println("Motor:", trueVal)
 		}
@@ -234,7 +470,7 @@ func (m *MINIMTSService) updateMotorPosition() error {
 // updateLoadData 读取载荷数据
 // 02 03 00 00 00 02 C4 38
 func (m *MINIMTSService) updateLoadData() error {
-	resp, err := m.comm.SendModbus(m.system.WeighID, 0x03, 0x00, 0x02)
+	resp, err := m.comm.SendModbus(m.system.config.WeighID, 0x03, 0x00, 0x02)
 	if err != nil {
 		return err
 	}
@@ -247,15 +483,15 @@ func (m *MINIMTSService) updateLoadData() error {
 	dataSwapped := []byte{resp[4], resp[3], resp[6], resp[5]}
 	rawLoad := int32(binary.LittleEndian.Uint32(dataSwapped))
 
-	load := float64(m.system.WeighDirection) * float64(rawLoad) / m.system.WeighResolution
+	load := float64(m.system.config.WeighDirection) * float64(rawLoad) / m.system.config.WeighResolution
 
 	// 写入缓存
 	m.statusMu.Lock()
-	m.MTSStatus.Load = load
+	m.MTSStatus.Load = (load - m.zeroLoad) * float64(m.displayDirection)
 	if m.project.ActiveConfig.SampleShape == "dogbone" {
-		m.MTSStatus.Stress = load / (m.project.ActiveConfig.Thickness * m.project.ActiveConfig.Width)
+		m.MTSStatus.Stress = (load - m.zeroLoad) / (m.project.ActiveConfig.Thickness * m.project.ActiveConfig.Width)
 	} else if m.project.ActiveConfig.SampleShape == "cylinder" {
-		m.MTSStatus.Stress = load / (math.Pi * m.project.ActiveConfig.Diameter * m.project.ActiveConfig.Diameter)
+		m.MTSStatus.Stress = (load - m.zeroLoad) / (math.Pi * m.project.ActiveConfig.Diameter * m.project.ActiveConfig.Diameter)
 	}
 	if Debug {
 		fmt.Println("Load:", load)
@@ -266,32 +502,32 @@ func (m *MINIMTSService) updateLoadData() error {
 }
 
 // 获取温度数据，临时使用
-func (m *MINIMTSService) updateTempData() error {
-	//读modbus寄存器获取温度数据, 功能码0x04
-	resp, err := m.comm.SendModbus(m.system.TempID, 0x04, 0x00, 0x01)
-	if err != nil {
-		return err
-	}
-	// 解析温度数据
-	if len(resp) >= 7 {
-		dataPart := resp[3:5]
-		//16位有符号整数
-		rawVal := int16(binary.BigEndian.Uint16(dataPart))
-		m.statusMu.Lock()
-		m.MTSStatus.Temp = float64(rawVal) / 10.0
-		if Debug {
-			fmt.Println("温度:", m.MTSStatus.Temp)
-		}
-		m.statusMu.Unlock()
-	}
+// func (m *MINIMTSService) updateTempData() error {
+// 	// 读modbus寄存器获取温度数据, 功能码0x04
+// 	resp, err := m.comm.SendModbus(m.system.TempID, 0x04, 0x00, 0x01)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	// 解析温度数据
+// 	if len(resp) >= 7 {
+// 		dataPart := resp[3:5]
+// 		//16位有符号整数
+// 		rawVal := int16(binary.BigEndian.Uint16(dataPart))
+// 		m.statusMu.Lock()
+// 		m.MTSStatus.Temp = float64(rawVal) / 10.0
+// 		if Debug {
+// 			fmt.Println("温度:", m.MTSStatus.Temp)
+// 		}
+// 		m.statusMu.Unlock()
+// 	}
 
-	return nil
+// 	return nil
 
-}
+// }
 
 // 获取限位状态, modbus, 功能码0x01, 读取离散输入
 func (m *MINIMTSService) updateLimitStatus() error {
-	resp, err := m.comm.SendModbus(m.system.LimitID, 0x04, 0x00, 0x02)
+	resp, err := m.comm.SendModbus(m.system.config.LimitID, 0x04, 0x00, 0x02)
 	// fmt.Println("获取限位状态:", resp)
 	if err != nil {
 		fmt.Println("获取限位状态失败:", err)
@@ -336,7 +572,7 @@ func (m *MINIMTSService) MotorOn() error {
 		return fmt.Errorf("系统配置未初始化")
 	}
 
-	cmd := []byte{0x3e, 0x88, m.system.MotorID, 0x00}
+	cmd := []byte{0x3e, 0x88, m.system.config.MotorID, 0x00}
 	resp, err := m.comm.Send3EBus(cmd, 5, 0x3e)
 	if err != nil {
 		return err
@@ -355,7 +591,7 @@ func (m *MINIMTSService) MotorOff() error {
 		return fmt.Errorf("系统配置未初始化")
 	}
 
-	cmd := []byte{0x3e, 0x80, m.system.MotorID, 0x00}
+	cmd := []byte{0x3e, 0x80, m.system.config.MotorID, 0x00}
 	resp, err := m.comm.Send3EBus(cmd, 5, 0x3e)
 	if err != nil {
 		return err
@@ -374,14 +610,13 @@ func (m *MINIMTSService) MotorStop() error {
 	if m.system == nil {
 		return fmt.Errorf("系统配置未初始化")
 	}
-	cmd := []byte{0x3e, 0x81, m.system.MotorID, 0x00}
+	cmd := []byte{0x3e, 0x81, m.system.config.MotorID, 0x00}
 	resp, err := m.comm.Send3EBus(cmd, 5, 0x3e)
 	if err != nil {
 		return err
 	}
 
 	if cmd[0] == resp[0] && cmd[3] == resp[3] {
-		fmt.Printf("电机停止成功\n")
 		return nil
 	}
 
@@ -398,11 +633,11 @@ func (m *MINIMTSService) JogMove(speed float64) error {
 	}
 
 	if m.MTSStatus.Limit != 0 {
-		if m.MTSStatus.Limit == m.system.LimitDirection && speed > 0 {
+		if m.MTSStatus.Limit == m.system.config.LimitDirection && speed > 0 {
 			//正向限位，禁止正向运动
 			fmt.Printf("正向限位，禁止正向运动\n")
 			return fmt.Errorf("正向限位，禁止正向运动")
-		} else if m.MTSStatus.Limit != m.system.LimitDirection && speed < 0 {
+		} else if m.MTSStatus.Limit != m.system.config.LimitDirection && speed < 0 {
 			//反向限位，禁止反向运动
 			fmt.Printf("反向限位，禁止反向运动\n")
 			return fmt.Errorf("反向限位，禁止反向运动")
@@ -414,9 +649,9 @@ func (m *MINIMTSService) JogMove(speed float64) error {
 	}
 
 	// 计算速率 (使用 system 里的 MotorResolution)
-	rate := int32(float64(m.system.MotorDirection) * speed * m.system.MotorResolution * 100)
+	rate := int32(float64(m.system.config.MotorDirection) * speed * m.system.config.MotorResolution * 100)
 	// 构造指令头 (4字节: 3e A2 ID 04)
-	header := []byte{0x3e, 0xA2, m.system.MotorID, 0x04}
+	header := []byte{0x3e, 0xA2, m.system.config.MotorID, 0x04}
 	headerWithCheck := m.comm.Calculate3ECheckSum(header)
 
 	// 构造数据体 (4字节速率值)
@@ -461,8 +696,10 @@ func (m *MINIMTSService) StartMeasurement() error {
 	fmt.Printf("开始测量: 类型=%s, 速度=%.2f\n", TestTpye, TestSpeed)
 
 	if TestTpye == "tension" {
+		m.displayDirection = 1
 		return m.JogMove(TestSpeed)
 	} else if TestTpye == "compression" {
+		m.displayDirection = -1
 		return m.JogMove(-TestSpeed)
 	} else {
 		fmt.Printf("未知的测试类型: %s\n", TestTpye)

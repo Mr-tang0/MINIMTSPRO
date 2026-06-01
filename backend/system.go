@@ -1,14 +1,14 @@
 package backend
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 )
 
-type System struct {
+// SystemConfig 系统配置数据结构
+type SystemConfig struct {
 	MotorID         byte    `json:"motor_id"`         // 当前电机ID
 	MotorResolution float64 `json:"motor_resolution"` // 电机分辨率
 	MotorDirection  int     `json:"motor_direction"`  // 电机方向，1 或 -1
@@ -23,35 +23,38 @@ type System struct {
 
 	TempID      byte `json:"temp_id"`      // 当前温度模块ID
 	TempEnabled bool `json:"temp_enabled"` // 是否启用温度模块
-
-	ctx context.Context
 }
 
-func NewSystem() *System {
-	return &System{
-		MotorID:         1,          // 默认电机ID
-		MotorResolution: 1312.47251, // 默认电机分辨率 (单位: mm)
-		MotorDirection:  1,          // 默认电机方向
+// SystemService 系统服务
+type SystemService struct {
+	config *SystemConfig
+}
 
-		WeighID:         2,   // 默认称重模块ID
-		WeighResolution: 1.0, // 默认称重模块分辨率 (单位: kg)
-		WeighDirection:  1,   // 默认称重模块方向
+func NewSystemService() *SystemService {
+	s := &SystemService{
+		config: &SystemConfig{
+			MotorID:         1,          // 默认电机ID
+			MotorResolution: 1312.47251, // 默认电机分辨率 (单位: mm)
+			MotorDirection:  1,          // 默认电机方向
 
-		LimitID:        4,     // 默认限位模块ID
-		LimitEnabled:   false, // 默认不启用限位模块
-		LimitDirection: 2,     // 默认限位模块方向：CW对应的端口
+			WeighID:         2,   // 默认称重模块ID
+			WeighResolution: 1.0, // 默认称重模块分辨率 (单位: kg)
+			WeighDirection:  1,   // 默认称重模块方向
 
-		TempID:      5,    // 默认温度模块ID
-		TempEnabled: true, // 默认不启用温度模块
+			LimitID:        4,     // 默认限位模块ID
+			LimitEnabled:   false, // 默认不启用限位模块
+			LimitDirection: 2,     // 默认限位模块方向：CW对应的端口
+
+			TempID:      5,    // 默认温度模块ID
+			TempEnabled: true, // 默认不启用温度模块
+		},
 	}
-}
-
-func (s *System) SetContext(ctx context.Context) {
-	s.ctx = ctx
+	s.GetConfigFromLocalFile()
+	return s
 }
 
 // 获取配置文件的存放路径
-func (s *System) getConfigPath() (string, error) {
+func (s *SystemService) getConfigPath() (string, error) {
 	homeDir, _ := os.UserHomeDir()
 
 	// 定义文件夹路径 (不包含文件名)
@@ -70,7 +73,7 @@ func (s *System) getConfigPath() (string, error) {
 }
 
 // GetConfigFromLocalFile 从本地路径读取并解码配置
-func (s *System) GetConfigFromLocalFile() (*System, error) {
+func (s *SystemService) GetConfigFromLocalFile() (*SystemConfig, error) {
 	path, err := s.getConfigPath()
 	if err != nil {
 		return nil, err
@@ -80,8 +83,8 @@ func (s *System) GetConfigFromLocalFile() (*System, error) {
 	// 检查文件是否存在
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		// 如果不存在，返回当前默认配置并保存一份
-		_ = s.UpdateConfigToLocalFile(s)
-		return s, nil
+		_ = s.UpdateConfigToLocalFile(s.config)
+		return s.config, nil
 	}
 
 	// 读取文件内容
@@ -91,16 +94,16 @@ func (s *System) GetConfigFromLocalFile() (*System, error) {
 	}
 
 	// 解码到当前结构体
-	err = json.Unmarshal(data, s)
+	err = json.Unmarshal(data, s.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %v", err)
 	}
 
-	return s, nil
+	return s.config, nil
 }
 
 // UpdateConfigToLocalFile 将传入的配置保存到本地文件并更新内存状态
-func (s *System) UpdateConfigToLocalFile(newConfig *System) error {
+func (s *SystemService) UpdateConfigToLocalFile(newConfig *SystemConfig) error {
 	path, err := s.getConfigPath()
 	if err != nil {
 		return fmt.Errorf("failed to get config path: %v", err)
@@ -118,18 +121,8 @@ func (s *System) UpdateConfigToLocalFile(newConfig *System) error {
 		return fmt.Errorf("failed to write config file: %v", err)
 	}
 
-	// 同步更新内存中的当前对象值（排除 ctx）
-	s.MotorID = newConfig.MotorID
-	s.MotorResolution = newConfig.MotorResolution
-	s.MotorDirection = newConfig.MotorDirection
-	s.WeighID = newConfig.WeighID
-	s.WeighResolution = newConfig.WeighResolution
-	s.WeighDirection = newConfig.WeighDirection
-	s.LimitID = newConfig.LimitID
-	s.LimitEnabled = newConfig.LimitEnabled
-	s.LimitDirection = newConfig.LimitDirection
-	s.TempID = newConfig.TempID
-	s.TempEnabled = newConfig.TempEnabled
+	// 同步更新内存中的当前对象值
+	s.config = newConfig
 
 	return nil
 }

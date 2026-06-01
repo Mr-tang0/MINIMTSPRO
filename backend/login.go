@@ -18,10 +18,28 @@ type User struct {
 }
 
 type LoginService struct {
+	user *User
+}
+
+func NewLoginService(user *User) *LoginService {
+	return &LoginService{
+		user: user,
+	}
 }
 
 func (l *LoginService) Login(name string, password string) User {
-	return User{}
+	if l.user == nil {
+		l.user = &User{}
+	}
+	l.user.ID = "1"
+	l.user.Name = name
+	l.user.Password = password
+	l.user.Email = ""
+	l.user.Role = "admin"
+	l.user.CreatedAt = "2023-08-01"
+	l.user.AppJson = nil
+	l.user.StaticPath = ""
+	return *l.user
 }
 
 // 唤起MINIMTS设备窗口

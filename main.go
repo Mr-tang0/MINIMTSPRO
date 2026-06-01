@@ -1,13 +1,12 @@
 package main
 
 import (
+	"changeme/backend"
 	"embed"
 	_ "embed"
+	"fmt"
 	"log"
 	"time"
-
-	"changeme/backend"
-	"fmt"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -20,9 +19,15 @@ func init() {
 }
 
 func main() {
+	user := &backend.User{}
 	updateService := &backend.UpdateService{}
-	loginService := &backend.LoginService{}
-	minimtsService := backend.NewMINIMTSService()
+	loginService := backend.NewLoginService(user)
+
+	projectService := backend.NewProjectService(user)
+	systemService := backend.NewSystemService()
+
+	minimtsService := backend.NewMINIMTSService(systemService, projectService, user)
+	cameraService := backend.NewHIKCamera()
 
 	app := application.New(application.Options{
 		Name:        "MINIMTS_3",
@@ -32,6 +37,9 @@ func main() {
 			application.NewService(updateService),
 			application.NewService(loginService),
 			application.NewService(minimtsService),
+			application.NewService(cameraService),
+			application.NewService(projectService),
+			application.NewService(systemService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

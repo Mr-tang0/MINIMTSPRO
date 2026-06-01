@@ -1,12 +1,13 @@
 package backend
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // ProjectConfig 对应 ProjectSettings.vue 中的 form 对象
@@ -45,17 +46,16 @@ type ProjectConfig struct {
 	PoissonEnable  bool    `json:"poissonEnable"`
 }
 
-type Project struct {
-	ctx          context.Context
+type ProjectService struct {
+	// ctx          context.Context
 	ActiveConfig *ProjectConfig
-
-	user *User
+	user         *User
 }
 
-func NewProject(u *User) *Project {
-	p := Project{
+func NewProjectService(user *User) *ProjectService {
+	p := &ProjectService{
 		ActiveConfig: &ProjectConfig{
-			Experimenter:    u.Name,
+			Experimenter:    user.Name,
 			SampleNo:        "Sample001",
 			TestDate:        time.Now().Format("2006-01-02 15:04:05"),
 			SampleShape:     "dogbone",
@@ -64,8 +64,8 @@ func NewProject(u *User) *Project {
 			Diameter:        2.0,
 			SectionLength:   10.0,
 			Type:            "tension",
-			Speed:           1.0,
-			StopCondition:   "strain",
+			Speed:           0.01,
+			StopCondition:   "manual",
 			FilePath:        "",
 			FileName:        "test",
 			DicEnable:       false,
@@ -82,27 +82,23 @@ func NewProject(u *User) *Project {
 			PhysLength:      10.0,
 			PoissonEnable:   false,
 		},
-		user: u,
+		user: user,
 	}
-	return &p
+	return p
 }
 
-func (p *Project) SetContext(ctx context.Context) {
-	p.ctx = ctx
+func (p *ProjectService) SetUser(user *User) {
+	p.user = user
 }
 
 // LoadProjectConfigFromFile 给定路径读取历史项目信息
-func (p *Project) LoadProjectConfigFromFile() (*ProjectConfig, error) {
-	fmt.Println(p.user.Name)
-	//根据用户ID与用户名构建配置文件路径
-
+func (p *ProjectService) LoadProjectConfigFromFile() (*ProjectConfig, error) {
+	fmt.Println("当前用户:", p.user.Name)
 	path, _ := os.UserHomeDir()
 	path = filepath.Join(path, "PIMS", "MINIMTS", "localuser", fmt.Sprintf("%s_%s", p.user.Name, p.user.ID), "config.json")
 
-	// 检查文件是否存在
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		fmt.Printf("未找到历史项目配置文件: %s\n", path)
-		//创建一个默认配置文件
 		defaultConfig := ProjectConfig{
 			Experimenter:    p.user.Name,
 			SampleNo:        "Sample001",
@@ -151,15 +147,13 @@ func (p *Project) LoadProjectConfigFromFile() (*ProjectConfig, error) {
 		return nil, fmt.Errorf("解析配置失败: %v", err)
 	}
 
-	// 更新后端内存中的当前配置
 	p.ActiveConfig = &config
 	fmt.Printf("已成功加载历史项目: %s\n", config.SampleNo)
 	return &config, nil
 }
 
 // SaveProjectConfig 保存项目信息到指定位置
-func (p *Project) SaveProjectConfig(config ProjectConfig) error {
-	// 更新当前时间
+func (p *ProjectService) SaveProjectConfig(config ProjectConfig) error {
 	config.TestDate = time.Now().Format("2006-01-02 15:04:05")
 
 	fullPath, _ := os.UserHomeDir()
@@ -175,11 +169,34 @@ func (p *Project) SaveProjectConfig(config ProjectConfig) error {
 	}
 
 	p.ActiveConfig = &config
-	fmt.Printf("项目配置已保存至: %s\n", fullPath)
+	fmt.Println("已保存项目: \n", p.ActiveConfig)
 	return nil
 }
 
-// GetActiveConfig 获取后端当前持有的配置
-func (p *Project) GetActiveConfig() *ProjectConfig {
-	return p.ActiveConfig
+// GetActiveConfig 获取后端当前持有的配置（供前端调用）
+func (p *ProjectService) GetActiveConfig() (*ProjectConfig, error) {
+	return p.LoadProjectConfigFromFile()
+}
+
+// SelectDirectory 选择目录（供前端调用）
+func (p *ProjectService) SelectDirectory() (string, error) {
+	app := application.Get()
+	if app == nil {
+		fmt.Println("app is nil")
+		return "", fmt.Errorf("application not initialized")
+	}
+
+	path, err := app.Dialog.OpenFile().
+		SetTitle("Select Folder").
+		CanChooseDirectories(true).
+		CanChooseFiles(false).
+		PromptForSingleSelection()
+
+	if err != nil {
+		fmt.Println("error:", err)
+		return "", err
+	}
+
+	fmt.Println("Selected path:", path)
+	return path, nil
 }

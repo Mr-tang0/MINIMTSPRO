@@ -5,9 +5,10 @@
       <div class="sidebar-top">
         <div class="sidebar-header">
           <div class="logo-icon">
-            <i class="ri-pulse-fill"></i>
+            <img src="../res/user.png" alt="Logo" />
           </div>
           <div class="badge">1</div>
+          
           <span class="logo-text">MTS</span>
         </div>
 
@@ -21,7 +22,11 @@
             <span class="btn-tip">连接</span>
           </div>
           
-          <div class="icon-wrapper">
+          <div 
+            class="icon-wrapper" 
+            :class="{ active: ModalStatus.showProjectWindow }" 
+            @click="ModalStatus.showProjectWindow = true"
+          >
             <i class="ri-file-list-3-line icon"></i>
             <span class="btn-tip">项目</span>
           </div>
@@ -31,11 +36,7 @@
             <span class="btn-tip">文件</span>
           </div>
           
-          <div 
-            class="icon-wrapper" 
-            :class="{ active: ModalStatus.showCameraWindow }" 
-            @click="ModalStatus.showCameraWindow = true"
-          >
+          <div v-if="SystemStatus.CameraOpened" class="icon-wrapper" >
             <i class="ri-camera-lens-line icon"></i>
             <span class="btn-tip">相机</span>
           </div>
@@ -79,7 +80,7 @@
           sub-unit="N"
           :sub-precision="1"
           accent="#f59e0b"
-          @dblclick="handleCardDoubleClick('stress')"
+          @dblclick="handleCardDoubleClick('load')"
         />
         
         <!-- 应变卡片 -->
@@ -93,7 +94,7 @@
           sub-unit="mm"
           :sub-precision="3"
           accent="#8b5cf6"
-          @dblclick="handleCardDoubleClick('strain')"
+          @dblclick="handleCardDoubleClick('disp')"
         />
         
         <!-- 视频应变卡片 -->
@@ -107,7 +108,7 @@
           sub-unit="mm"
           :sub-precision="3"
           accent="#06b6d4"
-          @dblclick="handleCardDoubleClick('videoStrain')"
+          @dblclick="handleCardDoubleClick('videoDisp')"
         />
         
         <!-- 时间卡片 -->
@@ -282,6 +283,27 @@
       </div>
     </Teleport>
 
+    <!-- 项目设置模态框 -->
+    <Teleport to="body">
+      <div v-if="ModalStatus.showProjectWindow" class="modal-overlay">
+        <div class="modal-container project-modal">
+          <div class="modal-header">
+            <h2>新建试验项目</h2>
+            <button class="close-btn" @click="ModalStatus.showProjectWindow = false">
+              <i class="ri-close-line"></i>
+            </button>
+          </div>
+          <div class="modal-body">
+            <Project 
+              :isCameraConnected="SystemStatus.CameraOpened" 
+              @cancel="ModalStatus.showProjectWindow = false"
+              @submit="handleProjectSubmit"
+            />
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
   </div>
 </template>
 
@@ -290,12 +312,27 @@ import { ref, reactive, onMounted, onUnmounted } from 'vue';
 import { Events } from '@wailsio/runtime';
 import * as echarts from 'echarts';
 import MetricCard from './MetricCard.vue';
+import Project from './Project.vue';
 import { 
+  CallHIKCameraWindow,
+  CloseHIKCameraWindow,
   GetMINIMTSDevices,
   OpenMINIMTS,
   CloseMINIMTS,
   JogMove,
+  ClearDataCache,
+  StartMeasurement,
+  StopMeasurement,
+  CallDataToZero,
+  SaveDataTCsv,
 } from "../../bindings/changeme/backend/minimtsservice";
+
+import { 
+  GetHIKCameraDevices,
+  OpenHIKCamera,
+  CloseHIKCamera,
+} from "../../bindings/changeme/backend/hikcameraservice";
+
 
 // 系统状态
 const SystemStatus = reactive({
@@ -314,7 +351,8 @@ const CameraDevices = ref([]);
 // 模态框状态
 const ModalStatus = reactive({
   showConnectModal: true, //打开软件时候，显示连接窗口
-  showCameraWindow: false,
+  showProjectWindow: false,
+  showSystemWindow: false,
 });
 
 // 数据值
@@ -357,6 +395,8 @@ let myChart = null;
 const currentView = ref('load_time');
 const isTesting = ref(false);
 
+
+
 // 刷新设备列表
 const refreshMINIMTSDevices = async() => {
   try {
@@ -373,12 +413,19 @@ const refreshMINIMTSDevices = async() => {
   }
 };
 
-const refreshCameraDevices = () => {
-  SystemStatus.CameraRefreshing = true;
-  setTimeout(() => { 
-    CameraDevices.value = ['Basler acA2440','FLIR BFS-U3','Daheng MER2']; 
-    SystemStatus.CameraRefreshing = false; 
-  }, 600);
+const refreshCameraDevices = async () => {
+  try { 
+    const devices = await GetHIKCameraDevices();
+    CameraDevices.value = devices;
+    if(!SystemStatus.CameraOpened && devices.length > 0) {
+      SystemStatus.SelectedCamera = devices[devices.length - 1];
+    }
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    SystemStatus.CameraRefreshing = false;
+  }
+  
 };
 
 // 设备连接
@@ -400,8 +447,24 @@ const handleMINIMTSConnect = async () => {
   }
 };
 
-const handleCameraConnect = () => { 
-  SystemStatus.CameraOpened = !SystemStatus.CameraOpened; 
+const handleCameraConnect = async () => { 
+  if (SystemStatus.CameraOpened) {
+    try { 
+      await CloseHIKCamera();
+      await CloseHIKCameraWindow();
+      SystemStatus.CameraOpened = false;
+    } catch (error) {
+      alert(error.message);
+    }
+  } else {
+    try { 
+      await OpenHIKCamera(SystemStatus.SelectedCamera);
+      await CallHIKCameraWindow();
+      SystemStatus.CameraOpened = true;
+    } catch (error) {
+      alert(error.message);
+    }
+  }
 };
 
 const jog = async(speed) => { 
@@ -413,8 +476,12 @@ const jog = async(speed) => {
 };
 
 // 卡片双击事件
-const handleCardDoubleClick = (key) => {
-  console.log('Card double clicked:', key);
+const handleCardDoubleClick = async (key) => {
+  try {
+    await CallDataToZero(key);
+  } catch (error) {
+    alert(error.message);
+  }
 };
 
 // 图表初始化
@@ -448,7 +515,7 @@ const initChart = () => {
       axisLabel: { 
         color: '#6b7280', 
         fontSize: 12,
-        formatter: (val) => val.toFixed(3)
+        formatter: (val) => val.toFixed(2)
       }
     },
     yAxis: {
@@ -611,16 +678,26 @@ const refreshChartUI = () => {
 };
 
 // 清除图表数据
-const ClearCharts = () => {
+const ClearCharts = async () => {
+  await ClearDataCache();
   Object.keys(DataSerials).forEach(k => DataSerials[k] = []);
-  Object.keys(DataValues).forEach(k => DataValues[k] = 0);
   refreshChartUI();
 };
 
+// 处理项目提交
+const handleProjectSubmit = (form) => {
+  console.log('Project submitted:', form);
+  ModalStatus.showProjectWindow = false;
+  alert('项目配置已保存');
+};
+
 // 保存数据
-const saveData = () => {
-  console.log('Saving data...');
-  alert('数据保存功能开发中');
+const saveData = async () => {
+  try {
+    await SaveDataTCsv();
+  } catch (error) {
+    console.error('保存数据失败:', error);
+  }
 };
 
 // 位移归零
@@ -630,8 +707,23 @@ const resetDisp = () => {
 };
 
 // 测试控制
-const toggleTest = () => { 
-  isTesting.value = !isTesting.value; 
+const toggleTest = async () => { 
+  if (isTesting.value) {
+    try {
+      await StopMeasurement();
+      isTesting.value = false;
+    } catch (error) {
+      console.error('停止测量失败:', error);
+    }
+
+  }else {
+    try {
+      await StartMeasurement();
+      isTesting.value = true;
+    } catch (error) {
+      console.error('启动测量失败:', error);
+    }
+  }
 };
 const emergencyStop = () => { 
   isTesting.value = false; 
@@ -641,6 +733,8 @@ const emergencyStop = () => {
 onMounted(async () => {
   initChart();
   refreshMINIMTSDevices();
+  refreshCameraDevices();
+  refreshChartUI();
   
   // 初始化北京时间
   updateBeijingTime();
@@ -671,6 +765,7 @@ onMounted(async () => {
     
     refreshChartUI();
   });
+
 });
 
 onUnmounted(() => {
@@ -738,14 +833,18 @@ onUnmounted(() => {
 .logo-icon {
   width: 100%;
   height: 100%;
-  background: var(--accent-blue);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 26px;
-  color: white;
   box-shadow: 0 4px 10px rgba(59,130,246,0.3);
+  overflow: hidden;
+}
+
+.logo-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .badge {
@@ -768,7 +867,7 @@ onUnmounted(() => {
 }
 
 .logo-text {
-  display: none;
+  display: block;
 }
 
 .nav-icons {
@@ -1301,5 +1400,61 @@ onUnmounted(() => {
 
 .connect-btn.connected:hover:not(:disabled) {
   background: #059669;
+}
+
+/* 项目设置模态框 */
+.modal-container {
+  background: #1e293b;
+  border-radius: 10px;
+  border: 1px solid #334155;
+  overflow: hidden;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+.project-modal {
+  width: 80%;
+  height: 90%;
+  display: flex;
+  flex-direction: column;
+}
+
+.project-modal .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #334155;
+  flex-shrink: 0;
+}
+
+.project-modal .modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+  color: #f8fafc;
+}
+
+.project-modal .modal-body {
+  flex: 1;
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.project-modal .close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  font-size: 18px;
+}
+
+.project-modal .close-btn:hover {
+  background: rgba(255,255,255,0.05);
+  color: var(--text-primary);
 }
 </style>

@@ -1,11 +1,5 @@
 <template>
-  <div class="project-settings-root">
-    <header class="settings-header">
-      <div class="title-wrap">
-        <i class="ri-folder-add-fill"></i>
-        <h2>新建试验项目</h2>
-      </div>
-    </header>
+  <div class="project-settings-content">
 
     <div class="settings-body scrollable">
       <!-- 1. 基本信息 -->
@@ -218,21 +212,19 @@
         </div>
       </div>
     </div>
-
-    <footer class="settings-footer">
-      
-      <button class="btn-primary" @click="handleSubmit">
-        <i class="ri-checkbox-circle-fill"></i> 提交项目
-      </button>
-      <button class="btn-secondary" @click="$emit('cancel')">取消</button>
-    </footer>
   </div>
+  
+  <footer class="settings-footer">
+    <button class="btn-primary" @click="handleSubmit">
+      <i class="ri-checkbox-circle-fill"></i> 提交项目
+    </button>
+    <button class="btn-secondary" @click="$emit('cancel')">取消</button>
+  </footer>
 </template>
 
 <script setup>
 import { reactive, ref, computed, onMounted} from 'vue';
-// 导入 Wails 路径选择
-import { SaveProjectConfig, GetActiveConfig, SelectDirectory } from '../../wailsjs/go/main/App';
+import { GetActiveConfig, SaveProjectConfig, SelectDirectory } from '../../bindings/changeme/backend/projectservice';
 
 const props = defineProps({
   isCameraConnected: {
@@ -240,8 +232,6 @@ const props = defineProps({
     default: false
   }
 })
-
-
 
 const emit = defineEmits(['submit', 'cancel']);
 const isSpeedOverridden = ref(false);
@@ -305,37 +295,64 @@ const handleSelectDir = async (field) => {
 };
 
 const handleSubmit = async() => {
-  const err = await SaveProjectConfig(form);
-  if (!err) {
+  try {
+    await SaveProjectConfig(form);
     emit('submit', form);
-  }else {
+  } catch (err) {
     alert("项目保存失败: " + err);
   }
 };
 
-onMounted(() => {
-  GetActiveConfig().then((config) => {
-    Object.assign(form, config);
-  });
-
+onMounted(async () => {
+  try {
+    const config = await GetActiveConfig();
+    if (config) {
+      Object.assign(form, config);
+    }
+  } catch (err) {
+    console.error("Failed to load config:", err);
+  }
 });
-
-
 </script>
 
 <style scoped>
-.project-settings-root {
-  flex: 1; display: flex; flex-direction: column;
-  background: #0f172a; border-radius: 8px; border: 1px solid #334155;
-  color: #f1f5f9; height: 100%; overflow: hidden; font-size: 13px;
+.project-settings-root, .project-settings-content {
+  display: flex;
+  flex-direction: column;
+  background: #0f172a;
+  border-radius: 8px;
+  border: 1px solid #334155;
+  color: #f1f5f9;
+  height: 100%;
+  overflow: hidden;
+  font-size: 13px;
 }
 
 .settings-header { padding: 12px 25px; background: #1e293b; border-bottom: 1px solid #334155; }
 .title-wrap { display: flex; align-items: center; gap: 10px; color: #3b82f6; }
 .title-wrap h2 { font-size: 1.1rem; margin: 0; font-weight: 800; }
 
-.settings-body { flex: 1; padding: 15px; display: flex; flex-direction: column; gap: 15px; }
+.settings-body {
+  flex: 1;
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
 .scrollable { overflow-y: auto; }
+
+.settings-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 12px 20px;
+  background: #1e293b;
+  border-top: 1px solid #334155;
+  flex-shrink: 0;
+}
 
 .config-section {
   border: 1px solid #334155; border-radius: 8px; padding: 15px;
@@ -370,10 +387,10 @@ onMounted(() => {
 .flex-2 { flex: 2; }
 
 /* 切换按钮 */
-.toggle-group { display: flex; background: #0f172a; padding: 3px; border-radius: 6px; }
+.toggle-group { display: flex; background: #0f172a; padding: 3px; border-radius: 3px; }
 .toggle-group button { 
   flex: 1; border: none; background: transparent; color: #64748b; 
-  padding: 6px; font-size: 12px; cursor: pointer; border-radius: 4px; font-weight: bold;
+  padding: 2px; font-size: 12px; cursor: pointer; border-radius: 4px; font-weight: bold;
 }
 .toggle-group button.active { background: #334155; color: #f1f5f9; }
 
@@ -434,8 +451,29 @@ input, select {
 .danger-text { color: #ef4444 !important; border-color: #ef4444 !important; }
 
 .settings-footer { padding: 15px 30px; display: flex; justify-content: flex-start; gap: 15px; background: #1e293b; border-top: 1px solid #334155; }
-.btn-secondary { background: transparent; border: 1px solid #334155; color: #64748b; padding: 10px 25px; border-radius: 6px; cursor: pointer; }
-.btn-primary { background: #3b82f6; color: white; border: none; padding: 10px 35px; border-radius: 6px; font-weight: 900; cursor: pointer; }
+.btn-secondary { 
+  background: transparent; 
+  border: 1px solid #334155; 
+  color: #64748b; 
+  padding: 5px 25px; 
+  border-radius: 6px; 
+  cursor: pointer; 
+  width: 150px;
+  height: 40px;
+}
+
+
+.btn-primary { 
+  background: #3b82f6; 
+  color: white; 
+  border: none; 
+  padding: 5px 25px; 
+  border-radius: 6px; 
+  font-weight: 900; 
+  cursor: pointer; 
+  width: 150px;
+  height: 40px;
+}
 
 .animate-in { animation: slideUp 0.3s ease-out; }
 @keyframes slideUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
