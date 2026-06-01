@@ -98,3 +98,6 @@ func main() {
 		log.Fatal(err)
 	}
 }
+
+// $env:CGO_ENABLED="1"
+// $env:PATH = "C:\msys64\ucrt64\bin;" + $env:PATH

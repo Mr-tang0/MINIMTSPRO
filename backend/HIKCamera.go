@@ -36,15 +36,16 @@ func NewHIKCamera() *HIKCameraService {
 
 // onImageReceived 图像数据回调（由 camera.go 调用）
 func (s *HIKCameraService) onImageReceived(data []byte, frameId uint64) {
-	// 更新帧缓冲区
 	s.imgMu.Lock()
+	defer s.imgMu.Unlock()
+
+	// 更新帧缓冲区（用于 HTTP 图像流）
 	if cap(s.imgBuffer) < len(data) {
 		s.imgBuffer = make([]byte, len(data))
 	}
 	s.imgBuffer = s.imgBuffer[:len(data)]
 	copy(s.imgBuffer, data)
 	atomic.StoreUint64(&s.frameId, frameId)
-	s.imgMu.Unlock()
 }
 
 // startLiveStreamServer 启动本地 HTTP 服务器提供图像流
