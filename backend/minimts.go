@@ -84,7 +84,6 @@ func (m *MINIMTSService) CallHIKCameraWindow() error {
 		return fmt.Errorf("application not initialized")
 	}
 
-	// ✨ 核心修复 1：如果窗口指针不为空，说明它只是被隐藏在后台，直接唤醒
 	if m.cameraWin != nil {
 		err := m.cameraWin.Show()
 		if err != nil {
@@ -96,7 +95,6 @@ func (m *MINIMTSService) CallHIKCameraWindow() error {
 		}
 	}
 
-	// 创建新窗口（只有在第一次打开，或被彻底销毁后才会走到这里）
 	m.cameraWin = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "Camera",
 		Width:  1200,
@@ -115,7 +113,8 @@ func (m *MINIMTSService) CallHIKCameraWindow() error {
 
 func (m *MINIMTSService) CloseHIKCameraWindow() {
 	if m.cameraWin != nil {
-		m.cameraWin.Hide() // ✨ 核心修复 2：仅仅原生隐藏，绝对不要执行 m.cameraWin = nil
+		m.cameraWin.Close()
+		m.cameraWin = nil
 	}
 }
 

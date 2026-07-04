@@ -1,4 +1,4 @@
-package clib
+package hik
 
 /*
 #cgo CFLAGS: -I${SRCDIR}/includes
@@ -291,4 +291,178 @@ func goOnImageReceived(pData *C.uchar, pFrameInfo *C.MV_FRAME_OUT_INFO_EX, pUser
 	if cam.ImageCb != nil {
 		cam.ImageCb(dataCopy, frameId)
 	}
+}
+
+// GetEnumValue 获取枚举型属性值
+func (c *Camera) GetEnumValue(strKey string) (uint32, []uint32, error) {
+	var value C.MVCC_ENUMVALUE
+	key := C.CString(strKey)
+	defer C.free(unsafe.Pointer(key))
+
+	ret := C.MV_CC_GetEnumValue(c.handle, key, &value)
+	if uint32(ret) != 0 {
+		return 0, nil, fmt.Errorf("获取枚举属性 %s 失败: 0x%08x", strKey, uint32(ret))
+	}
+
+	supportedNum := int(value.nSupportedNum)
+	if supportedNum > len(value.nSupportValue) {
+		supportedNum = len(value.nSupportValue)
+	}
+
+	supportValues := make([]uint32, supportedNum)
+	for i := 0; i < supportedNum; i++ {
+		supportValues[i] = uint32(value.nSupportValue[i])
+	}
+
+	return uint32(value.nCurValue), supportValues, nil
+}
+
+// SetEnumValue 设置枚举型属性值
+func (c *Camera) SetEnumValue(strKey string, value uint32) error {
+	key := C.CString(strKey)
+	defer C.free(unsafe.Pointer(key))
+
+	ret := C.MV_CC_SetEnumValue(c.handle, key, C.uint(value))
+	if uint32(ret) != 0 {
+		return fmt.Errorf("设置枚举属性 %s 失败: 0x%08x", strKey, uint32(ret))
+	}
+	return nil
+}
+
+// SetEnumValueByString 通过字符串设置枚举型属性值
+func (c *Camera) SetEnumValueByString(strKey string, value string) error {
+	key := C.CString(strKey)
+	defer C.free(unsafe.Pointer(key))
+
+	strValue := C.CString(value)
+	defer C.free(unsafe.Pointer(strValue))
+
+	ret := C.MV_CC_SetEnumValueByString(c.handle, key, strValue)
+	if uint32(ret) != 0 {
+		return fmt.Errorf("设置枚举属性 %s=%s 失败: 0x%08x", strKey, value, uint32(ret))
+	}
+	return nil
+}
+
+// GetEnumEntrySymbolic 获取枚举值对应的符号名
+func (c *Camera) GetEnumEntrySymbolic(strKey string, value uint32) (string, error) {
+	var entry C.MVCC_ENUMENTRY
+	entry.nValue = C.uint(value)
+
+	key := C.CString(strKey)
+	defer C.free(unsafe.Pointer(key))
+
+	ret := C.MV_CC_GetEnumEntrySymbolic(c.handle, key, &entry)
+	if uint32(ret) != 0 {
+		return "", fmt.Errorf("获取枚举属性 %s 的符号名失败: 0x%08x", strKey, uint32(ret))
+	}
+	return C.GoString((*C.char)(unsafe.Pointer(&entry.chSymbolic[0]))), nil
+}
+
+// GetFloatValue 获取浮点型属性值
+func (c *Camera) GetFloatValue(strKey string) (float64, float64, float64, error) {
+	var value C.MVCC_FLOATVALUE
+	key := C.CString(strKey)
+	defer C.free(unsafe.Pointer(key))
+
+	ret := C.MV_CC_GetFloatValue(c.handle, key, &value)
+	if uint32(ret) != 0 {
+		return 0, 0, 0, fmt.Errorf("获取浮点属性 %s 失败: 0x%08x", strKey, uint32(ret))
+	}
+	return float64(value.fCurValue), float64(value.fMax), float64(value.fMin), nil
+}
+
+// SetFloatValue 设置浮点型属性值
+func (c *Camera) SetFloatValue(strKey string, value float64) error {
+	key := C.CString(strKey)
+	defer C.free(unsafe.Pointer(key))
+
+	ret := C.MV_CC_SetFloatValue(c.handle, key, C.float(value))
+	if uint32(ret) != 0 {
+		return fmt.Errorf("设置浮点属性 %s 失败: 0x%08x", strKey, uint32(ret))
+	}
+	return nil
+}
+
+// GetBoolValue 获取布尔型属性值
+func (c *Camera) GetBoolValue(strKey string) (bool, error) {
+	var value C.hik_bool
+	key := C.CString(strKey)
+	defer C.free(unsafe.Pointer(key))
+
+	ret := C.MV_CC_GetBoolValue(c.handle, key, &value)
+	if uint32(ret) != 0 {
+		return false, fmt.Errorf("获取布尔属性 %s 失败: 0x%08x", strKey, uint32(ret))
+	}
+	return value != 0, nil
+}
+
+// SetBoolValue 设置布尔型属性值
+func (c *Camera) SetBoolValue(strKey string, value bool) error {
+	key := C.CString(strKey)
+	defer C.free(unsafe.Pointer(key))
+
+	var boolValue C.hik_bool
+	if value {
+		boolValue = 1
+	}
+
+	ret := C.MV_CC_SetBoolValue(c.handle, key, boolValue)
+	if uint32(ret) != 0 {
+		return fmt.Errorf("设置布尔属性 %s 失败: 0x%08x", strKey, uint32(ret))
+	}
+	return nil
+}
+
+// GetIntValue 获取整型属性值
+func (c *Camera) GetIntValue(strKey string) (int64, int64, int64, int64, error) {
+	var value C.MVCC_INTVALUE_EX
+	key := C.CString(strKey)
+	defer C.free(unsafe.Pointer(key))
+
+	ret := C.MV_CC_GetIntValueEx(c.handle, key, &value)
+	if uint32(ret) != 0 {
+		return 0, 0, 0, 0, fmt.Errorf("获取整型属性 %s 失败: 0x%08x", strKey, uint32(ret))
+	}
+	return int64(value.nCurValue), int64(value.nMax), int64(value.nMin), int64(value.nInc), nil
+}
+
+// SetIntValue 设置整型属性值
+func (c *Camera) SetIntValue(strKey string, value int64) error {
+	key := C.CString(strKey)
+	defer C.free(unsafe.Pointer(key))
+
+	ret := C.MV_CC_SetIntValueEx(c.handle, key, C.int64_t(value))
+	if uint32(ret) != 0 {
+		return fmt.Errorf("设置整型属性 %s 失败: 0x%08x", strKey, uint32(ret))
+	}
+	return nil
+}
+
+// GetStringValue 获取字符串型属性值
+func (c *Camera) GetStringValue(strKey string) (string, int64, error) {
+	var value C.MVCC_STRINGVALUE
+	key := C.CString(strKey)
+	defer C.free(unsafe.Pointer(key))
+
+	ret := C.MV_CC_GetStringValue(c.handle, key, &value)
+	if uint32(ret) != 0 {
+		return "", 0, fmt.Errorf("获取字符串属性 %s 失败: 0x%08x", strKey, uint32(ret))
+	}
+	return C.GoString((*C.char)(unsafe.Pointer(&value.chCurValue[0]))), int64(value.nMaxLength), nil
+}
+
+// SetStringValue 设置字符串型属性值
+func (c *Camera) SetStringValue(strKey string, value string) error {
+	key := C.CString(strKey)
+	defer C.free(unsafe.Pointer(key))
+
+	strValue := C.CString(value)
+	defer C.free(unsafe.Pointer(strValue))
+
+	ret := C.MV_CC_SetStringValue(c.handle, key, strValue)
+	if uint32(ret) != 0 {
+		return fmt.Errorf("设置字符串属性 %s 失败: 0x%08x", strKey, uint32(ret))
+	}
+	return nil
 }

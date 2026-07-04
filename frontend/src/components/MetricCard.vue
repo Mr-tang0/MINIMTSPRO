@@ -32,7 +32,7 @@ const props = defineProps({
   mainUnit: { type: String, default: '' },
   mainPrecision: { type: Number, default: 2 },
   subLabel: { type: String, default: '' },
-  subValue: { type: Number || String, default: undefined },
+  subValue: { type: [Number, String], default: undefined },
   subUnit: { type: String, default: '' },
   subPrecision: { type: Number, default: 2 },
   showSub: { type: Boolean, default: true },

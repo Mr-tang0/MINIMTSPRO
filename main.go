@@ -11,7 +11,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-//go:embed all:frontend/dist
+//go:embed all:frontend/dist/*
 var assets embed.FS
 
 func init() {
@@ -33,7 +33,6 @@ func main() {
 		Name:        "MINIMTS_3",
 		Description: "A demo of using raw HTML & CSS",
 		Services: []application.Service{
-			application.NewService(&GreetService{}),
 			application.NewService(updateService),
 			application.NewService(loginService),
 			application.NewService(minimtsService),
@@ -100,4 +99,6 @@ func main() {
 }
 
 // $env:CGO_ENABLED="1"
-// $env:PATH = "C:\msys64\ucrt64\bin;" + $env:PATH
+// npm.cmd install vue-router
+// npm.cmd install echarts
+// $env:PATH = "C:\opencv\build\install\x64\mingw\bin;" + $env:PATH; wails3 dev

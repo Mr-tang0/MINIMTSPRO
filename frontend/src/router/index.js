@@ -4,6 +4,7 @@ import Update from '../components/Update.vue'
 import MINIMTS from '../components/MINIMTS.vue'
 import Camera from '../components/Camera.vue'
 import Project from '../components/Project.vue'
+import ROISelector from '../components/ROISelector.vue'
 import System from '../components/System.vue'
 
 const routes = [
@@ -36,6 +37,11 @@ const routes = [
     path: '/project',
     name: 'Project',
     component: Project
+  },
+  {
+    path: '/roi-selector',
+    name: 'ROISelector',
+    component: ROISelector
   },
 ]
 

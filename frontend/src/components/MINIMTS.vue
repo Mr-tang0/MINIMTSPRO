@@ -688,7 +688,7 @@ const ClearCharts = async () => {
 const handleProjectSubmit = (form) => {
   console.log('Project submitted:', form);
   ModalStatus.showProjectWindow = false;
-  alert('项目配置已保存');
+  // alert('项目配置已保存');
 };
 
 // 保存数据

@@ -35,7 +35,7 @@
           <div class="param-item">
             <div class="param-header">
               <label>曝光 (Exposure)</label>
-              <select v-model="cameraParams.exposure.mode" class="mode-select">
+              <select v-model="cameraParams.exposure.mode" class="mode-select" @change="applyExposureAuto">
                 <option value="manual">手动</option>
                 <option value="once_auto">单次自动</option>
                 <option value="continuous_auto">连续自动</option>
@@ -46,18 +46,20 @@
                 <input 
                   type="range" 
                   v-model.number="cameraParams.exposure.value" 
-                  min="0.1" 
-                  max="100" 
-                  step="0.1"
+                  min="1" 
+                  max="100000" 
+                  step="1"
                   class="industrial-slider"
+                  @change="applyExposureTime"
                 />
                 <input 
                   type="number" 
                   v-model.number="cameraParams.exposure.value" 
-                  min="0.1" 
-                  max="100" 
-                  step="0.1"
+                  min="1" 
+                  max="100000" 
+                  step="1"
                   class="param-input"
+                  @keyup.enter="applyExposureTime"
                 />
                 <span class="param-unit">ms</span>
               </div>
@@ -69,7 +71,7 @@
           <div class="param-item">
             <div class="param-header">
               <label>增益 (Gain)</label>
-              <select v-model="cameraParams.gain.mode" class="mode-select">
+              <select v-model="cameraParams.gain.mode" class="mode-select" @change="applyGainAuto">
                 <option value="manual">手动</option>
                 <option value="once_auto">单次自动</option>
                 <option value="continuous_auto">连续自动</option>
@@ -84,6 +86,7 @@
                   max="24" 
                   step="0.1"
                   class="industrial-slider"
+                  @change="applyGain"
                 />
                 <input 
                   type="number" 
@@ -92,6 +95,7 @@
                   max="24" 
                   step="0.1"
                   class="param-input"
+                  @keyup.enter="applyGain"
                 />
                 <span class="param-unit">dB</span>
               </div>
@@ -102,7 +106,7 @@
           <div class="param-item">
             <div class="param-header">
               <label>数字增益 (Digital Gain)</label>
-              <select v-model="cameraParams.digitalGain.mode" class="mode-select">
+              <select v-model="cameraParams.digitalGain.mode" class="mode-select" @change="applyDigitalGainMode">
                 <option value="manual">手动</option>
                 <option value="once_auto">单次自动</option>
                 <option value="continuous_auto">连续自动</option>
@@ -117,6 +121,7 @@
                   max="16" 
                   step="0.1"
                   class="industrial-slider"
+                  @change="applyDigitalGain"
                 />
                 <input 
                   type="number" 
@@ -125,6 +130,7 @@
                   max="16" 
                   step="0.1"
                   class="param-input"
+                  @keyup.enter="applyDigitalGain"
                 />
                 <span class="param-unit">x</span>
               </div>
@@ -132,10 +138,10 @@
           </div>
 
           <!-- 4. 白平衡 -->
-          <div class="param-item">
+          <!-- <div class="param-item">
             <div class="param-header">
               <label>白平衡 (White Balance)</label>
-              <select v-model="cameraParams.whiteBalance.mode" class="mode-select">
+              <select v-model="cameraParams.whiteBalance.mode" class="mode-select" @change="applyBalanceWhiteAuto">
                 <option value="manual">手动</option>
                 <option value="once_auto">单次自动</option>
                 <option value="continuous_auto">连续自动</option>
@@ -150,6 +156,7 @@
                   max="10000" 
                   step="100"
                   class="industrial-slider"
+                  @change="applyWhiteBalance"
                 />
                 <input 
                   type="number" 
@@ -158,17 +165,18 @@
                   max="10000" 
                   step="100"
                   class="param-input"
+                  @keyup.enter="applyWhiteBalance"
                 />
-                <span class="param-unit">K</span>
+                <span class="param-unit">Ratio</span>
               </div>
             </div>
-          </div>
+          </div> -->
 
           <!-- 5. 伽马校正 -->
           <div class="param-item">
             <div class="param-header">
               <label>伽马校正 (Gamma)</label>
-              <select v-model="cameraParams.gamma.enabled" class="mode-select">
+              <select v-model="cameraParams.gamma.enabled" class="mode-select" @change="applyGammaEnabled">
                 <option :value="false">关闭</option>
                 <option :value="true">开启</option>
               </select>
@@ -182,6 +190,7 @@
                   max="3.0" 
                   step="0.1"
                   class="industrial-slider"
+                  @change="applyGamma"
                 />
                 <input 
                   type="number" 
@@ -190,6 +199,7 @@
                   max="3.0" 
                   step="0.1"
                   class="param-input"
+                  @keyup.enter="applyGamma"
                 />
               </div>
             </div>
@@ -236,11 +246,26 @@
 
 <script setup>
 import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
+import { Events } from '@wailsio/runtime'
+import { 
+  GetCameraParams,
+
+  SetExposureAuto,
+  SetExposureTime,
+  SetGainAuto,
+  SetGain,
+  SetDigitalGainEnabled,
+  SetDigitalGain,
+  SetBalanceWhiteAuto,
+  SetWhiteBalanceRed,
+  SetGammaEnabled,
+  SetGamma,
+} from "../../bindings/changeme/backend/hikcameraservice";
 
 const streamImgRef = ref(null)
 const isOnline = ref(false)
 const currentTime = ref(new Date())
-const frameId = ref(1)
+let offCameraFrame
 
 // 参数模式选项 - 使用 reactive 统一管理
 const cameraParams = reactive({
@@ -268,11 +293,7 @@ const cameraParams = reactive({
   flipVertical: false
 })
 
-// 本地 Go HTTP 视频服务提供端口与路由
-const liveStreamUrl = 'http://127.0.0.1:9099/live'
-
 let timeTicker
-let imgTicker
 
 // 刷新顶部装饰条系统时间
 const updateTime = () => {
@@ -286,29 +307,169 @@ const currentFullTime = computed(() => {
   return `${date} ${time}`
 })
 
-// 原生 DOM 精准极速图片刷新逻辑，避开 Vue 虚拟 DOM 劫持带来的 CPU 阻塞
-const refreshImage = () => {
-  if (streamImgRef.value) {
-    // 带有自增时间/帧特征的参数强制破坏缓存，防止浏览器读取磁盘旧文件
-    streamImgRef.value.src = `${liveStreamUrl}?f=${frameId.value}`
-    frameId.value++
-    if (!isOnline.value) {
-      isOnline.value = true
-      streamImgRef.value.style.display = 'block'
-    }
+const enumModeToFrontend = (value) => {
+  switch (value) {
+    case 1:
+      return 'once_auto'
+    case 2:
+      return 'continuous_auto'
+    default:
+      return 'manual'
   }
 }
 
-onMounted(() => {
+const showCameraFrame = (payload) => {
+  const data = payload?.data ?? payload
+  if (!streamImgRef.value || !data?.image) {
+    return
+  }
+
+  streamImgRef.value.src = data.image
+  if (!isOnline.value) {
+    isOnline.value = true
+    streamImgRef.value.style.display = 'block'
+  }
+}
+
+const loadCameraParams = async () => {
+  const params = await GetCameraParams()
+
+  cameraParams.exposure.mode = enumModeToFrontend(params.exposureAuto)
+  cameraParams.exposure.value = params.exposureTime
+  cameraParams.gain.mode = enumModeToFrontend(params.gainAuto)
+  cameraParams.gain.value = params.gain
+  cameraParams.digitalGain.mode = params.digitalGainEnable ? 'manual' : 'continuous_auto'
+  cameraParams.digitalGain.value = params.digitalGain
+  cameraParams.whiteBalance.mode = enumModeToFrontend(params.balanceWhiteAuto)
+  cameraParams.whiteBalance.value = params.balanceWhite
+  cameraParams.gamma.enabled = params.gammaEnable
+  cameraParams.gamma.value = params.gamma
+}
+
+onMounted(async () => {
   timeTicker = setInterval(updateTime, 1000)
-  imgTicker = setInterval(refreshImage, 100) // 100ms 高频刷新，保障稳定采集流
-  refreshImage()
+  offCameraFrame = Events.On('hik_camera_frame', showCameraFrame)
+  await loadCameraParams()
 })
+
 
 onUnmounted(() => {
   clearInterval(timeTicker)
-  clearInterval(imgTicker)
+  offCameraFrame?.()
 })
+
+const applyExposureAuto = async () => {
+  try {
+    await SetExposureAuto(cameraParams.exposure.mode)
+    if (cameraParams.exposure.mode === 'manual') {
+      await SetExposureTime(cameraParams.exposure.value)
+    }
+  } catch (err) {
+    console.error(err)
+  }
+}
+
+const applyExposureTime = async () => {
+  if (cameraParams.exposure.mode !== 'manual') {
+    return
+  }
+  try {
+    await SetExposureTime(cameraParams.exposure.value)
+  } catch (err) {
+    console.error(err)
+  }
+}
+
+const applyGainAuto = async () => {
+  try {
+    await SetGainAuto(cameraParams.gain.mode)
+    if (cameraParams.gain.mode === 'manual') {
+      await SetGain(cameraParams.gain.value)
+    }
+  } catch (err) {
+    console.error(err)
+  }
+}
+
+const applyGain = async () => {
+  if (cameraParams.gain.mode !== 'manual') {
+    return
+  }
+  try {
+    await SetGain(cameraParams.gain.value)
+  } catch (err) {
+    console.error(err)
+  }
+}
+
+const applyDigitalGainMode = async () => {
+  try {
+    const enabled = cameraParams.digitalGain.mode === 'manual'
+    await SetDigitalGainEnabled(enabled)
+    if (enabled) {
+      await SetDigitalGain(cameraParams.digitalGain.value)
+    }
+  } catch (err) {
+    console.error(err)
+  }
+}
+
+const applyDigitalGain = async () => {
+  if (cameraParams.digitalGain.mode !== 'manual') {
+    return
+  }
+  try {
+    await SetDigitalGain(cameraParams.digitalGain.value)
+  } catch (err) {
+    console.error(err)
+  }
+}
+
+const applyBalanceWhiteAuto = async () => {
+  try {
+    await SetBalanceWhiteAuto(cameraParams.whiteBalance.mode)
+    if (cameraParams.whiteBalance.mode === 'manual') {
+      await SetWhiteBalanceRed(cameraParams.whiteBalance.value)
+    }
+  } catch (err) {
+    console.error(err)
+  }
+}
+
+const applyWhiteBalance = async () => {
+  if (cameraParams.whiteBalance.mode !== 'manual') {
+    return
+  }
+  try {
+    await SetWhiteBalanceRed(cameraParams.whiteBalance.value)
+  } catch (err) {
+    console.error(err)
+  }
+}
+
+const applyGammaEnabled = async () => {
+  try {
+    await SetGammaEnabled(cameraParams.gamma.enabled)
+    if (cameraParams.gamma.enabled) {
+      await SetGamma(cameraParams.gamma.value)
+    }
+  } catch (err) {
+    console.error(err)
+  }
+}
+
+const applyGamma = async () => {
+  if (!cameraParams.gamma.enabled) {
+    return
+  }
+  try {
+    await SetGamma(cameraParams.gamma.value)
+  } catch (err) {
+    console.error(err)
+  }
+}
+
+
 </script>
 
 <style scoped>

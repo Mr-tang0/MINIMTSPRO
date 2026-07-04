@@ -1,144 +1,59 @@
-# MINIMTS_3
+# Welcome to Your New Wails3 Project!
 
-MINIMTS_3 是一款基于 Wails 3 框架开发的材料测试系统（MTS）控制软件，集成了工业相机高帧率图像采集、数据采集与分析功能。
+Congratulations on generating your Wails3 application! This README will guide you through the next steps to get your project up and running.
 
-## 功能特点
+## Getting Started
 
-### 📷 相机采集
-- 支持海康威视工业相机 SDK
-- 高帧率图像采集与实时预览
-- 基于 HTTP 图像流服务的高效图像传输
-- 支持曝光、增益、白平衡等参数调节
+1. Navigate to your project directory in the terminal.
 
-### 📊 数据采集
-- 电机位置精准读取（协议 0x3E 92）
-- 载荷数据采集（Modbus 协议）
-- 实时应力、应变计算
-- 支持载荷/位移归零功能
+2. To run your application in development mode, use the following command:
 
-### 📁 项目管理
-- 项目配置保存与加载
-- 支持多种样品形状（矩形、圆柱形）
-- 自动计算截面积
-- 实验参数配置
+   ```
+   wails3 dev
+   ```
 
-### 💾 数据存储
-- CSV 格式数据导出
-- JSON 格式配置文件保存
-- 自动处理文件名冲突
+   This will start your application and enable hot-reloading for both frontend and backend changes.
 
-## 技术架构
+3. To build your application for production, use:
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      前端 (Vue 3)                           │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
-│  │  Login   │  │ MINIMTS  │  │ Project  │  │  Camera  │   │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘   │
-└───────┼─────────────┼─────────────┼─────────────┼─────────┘
-        │             │             │             │
-        └─────────────┼─────────────┼─────────────┘
-                      ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      后端 (Go + Wails 3)                    │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │
-│  │ LoginService │  │MINIMTSService│  │ProjectService│     │
-│  └──────────────┘  └───────┬──────┘  └──────────────┘     │
-│                            │                               │
-│              ┌─────────────┼─────────────┐                 │
-│              ▼             ▼             ▼                 │
-│      ┌──────────┐ ┌─────────────┐ ┌─────────────┐         │
-│      │SerialComm│ │HIKCamera    │ │SystemService│         │
-│      └──────────┘ └─────────────┘ └─────────────┘         │
-└─────────────────────────────────────────────────────────────┘
-```
+   ```
+   wails3 build
+   ```
 
-## 项目结构
+   This will create a production-ready executable in the `build` directory.
 
-```
-MINIMTS_3/
-├── backend/                    # Go 后端代码
-│   ├── clib/                  # CGO 相机库封装
-│   │   └── camera.go          # 相机底层驱动
-│   ├── HIKCamera.go           # 相机服务（HTTP 图像流）
-│   ├── login.go               # 登录服务
-│   ├── minimts.go             # MTS 核心服务
-│   ├── project.go             # 项目管理服务
-│   └── system.go              # 系统配置服务
-├── frontend/                  # Vue 前端代码
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── Camera.vue     # 相机预览组件
-│   │   │   ├── MINIMTS.vue    # 主界面组件
-│   │   │   ├── Project.vue    # 项目配置组件
-│   │   │   └── MetricCard.vue # 数据卡片组件
-│   │   └── App.vue
-│   └── bindings/              # Wails 自动生成的绑定
-├── main.go                    # 应用入口
-├── go.mod                     # Go 依赖配置
-└── wails.json                 # Wails 配置文件
-```
+## Exploring Wails3 Features
 
-## 快速开始
+Now that you have your project set up, it's time to explore the features that Wails3 offers:
 
-### 环境要求
+1. **Check out the examples**: The best way to learn is by example. Visit the `examples` directory in the `v3/examples` directory to see various sample applications.
 
-- Go 1.26+
-- Node.js 18+
-- Wails 3 (alpha.95)
-- 海康威视相机 SDK（可选，用于相机功能）
+2. **Run an example**: To run any of the examples, navigate to the example's directory and use:
 
-### 开发模式
+   ```
+   go run .
+   ```
 
-```bash
-# 安装依赖
-go mod tidy
-npm install
+   Note: Some examples may be under development during the alpha phase.
 
-# 运行开发服务器
-wails3 dev
-```
+3. **Explore the documentation**: Visit the [Wails3 documentation](https://v3.wails.io/) for in-depth guides and API references.
 
-### 生产构建
+4. **Join the community**: Have questions or want to share your progress? Join the [Wails Discord](https://discord.gg/JDdSxwjhGf) or visit the [Wails discussions on GitHub](https://github.com/wailsapp/wails/discussions).
 
-```bash
-wails3 build
-```
+## Project Structure
 
-## 使用说明
+Take a moment to familiarize yourself with your project structure:
 
-1. **登录系统**: 启动应用后，在登录窗口输入用户名即可登录
-2. **配置项目**: 点击项目按钮配置实验参数（样品尺寸、试验类型等）
-3. **连接设备**: 在主界面连接串口设备
-4. **启动采集**: 点击启动按钮开始数据采集
-5. **数据归零**: 可随时对载荷或位移进行归零操作
-6. **保存数据**: 点击保存按钮导出 CSV 数据文件
+- `frontend/`: Contains your frontend code (HTML, CSS, JavaScript/TypeScript)
+- `main.go`: The entry point of your Go backend
+- `app.go`: Define your application structure and methods here
+- `wails.json`: Configuration file for your Wails project
 
-## API 接口
+## Next Steps
 
-### MINIMTSService
+1. Modify the frontend in the `frontend/` directory to create your desired UI.
+2. Add backend functionality in `main.go`.
+3. Use `wails3 dev` to see your changes in real-time.
+4. When ready, build your application with `wails3 build`.
 
-| 方法 | 说明 | 参数 |
-|------|------|------|
-| `ConnectSerial(port)` | 连接串口 | port: string |
-| `DisconnectSerial()` | 断开串口 | - |
-| `StartPolling()` | 开始数据轮询 | - |
-| `StopPolling()` | 停止数据轮询 | - |
-| `CallDataToZero(type)` | 数据归零 | type: "load" \| "disp" |
-| `SaveDataTCsv()` | 保存数据到 CSV | - |
-
-### ProjectService
-
-| 方法 | 说明 | 参数 |
-|------|------|------|
-| `GetActiveConfig()` | 获取当前项目配置 | - |
-| `SaveProjectConfig(config)` | 保存项目配置 | config: ProjectConfig |
-| `SelectDirectory()` | 选择目录 | - |
-
-## 许可证
-
-MIT License
-
-## 技术支持
-
-如有问题，请参考 Wails 3 官方文档：https://v3.wails.io/
+Happy coding with Wails3! If you encounter any issues or have questions, don't hesitate to consult the documentation or reach out to the Wails community.

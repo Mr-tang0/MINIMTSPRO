@@ -191,11 +191,11 @@
                 <button class="btn-ave"><i class="ri-edit-2-line"></i> 绘制标距方向</button>
                 <div class="marker-row">
                   <div class="marker-btn-box">
-                    <button class="btn-ave mini">选取 A 点</button>
+                    <button class="btn-ave mini" @click="openMarkerSelector('A')">选取 A 点</button>
                     <div class="res-box">{{ form.markerA || '--, --' }}</div>
                   </div>
                   <div class="marker-btn-box">
-                    <button class="btn-ave mini">选取 B 点</button>
+                    <button class="btn-ave mini" @click="openMarkerSelector('B')">选取 B 点</button>
                     <div class="res-box">{{ form.markerB || '--, --' }}</div>
                   </div>
                 </div>
@@ -223,8 +223,10 @@
 </template>
 
 <script setup>
-import { reactive, ref, computed, onMounted} from 'vue';
+import { reactive, ref, computed, onMounted, onUnmounted } from 'vue';
+import { Events } from '@wailsio/runtime';
 import { GetActiveConfig, SaveProjectConfig, SelectDirectory } from '../../bindings/changeme/backend/projectservice';
+import { OpenROISelector } from '../../bindings/changeme/backend/hikcameraservice';
 
 const props = defineProps({
   isCameraConnected: {
@@ -294,6 +296,31 @@ const handleSelectDir = async (field) => {
   }
 };
 
+let offROISelected
+
+const formatROI = (roi) => {
+  if (!roi) return '--, --'
+  return `X:${Math.round(roi.x)} Y:${Math.round(roi.y)} W:${Math.round(roi.width)} H:${Math.round(roi.height)}`
+}
+
+const openMarkerSelector = async (label) => {
+  try {
+    await OpenROISelector(label)
+  } catch (err) {
+    alert(err)
+  }
+}
+
+const handleROISelected = (payload) => {
+  const data = payload?.data ?? payload
+  const value = formatROI(data?.roi)
+  if (data?.label === 'A') {
+    form.markerA = value
+  } else if (data?.label === 'B') {
+    form.markerB = value
+  }
+}
+
 const handleSubmit = async() => {
   try {
     await SaveProjectConfig(form);
@@ -304,6 +331,7 @@ const handleSubmit = async() => {
 };
 
 onMounted(async () => {
+  offROISelected = Events.On('hik_roi_selected', handleROISelected)
   try {
     const config = await GetActiveConfig();
     if (config) {
@@ -313,6 +341,10 @@ onMounted(async () => {
     console.error("Failed to load config:", err);
   }
 });
+
+onUnmounted(() => {
+  offROISelected?.()
+})
 </script>
 
 <style scoped>
