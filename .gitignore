@@ -22,3 +22,5 @@ frontend/wailsjs/go/main/App.js
 Taskfile.yml
 go.sum
 go.mod
+changeme.exe
+frontend/.bindings-tmp-*/
