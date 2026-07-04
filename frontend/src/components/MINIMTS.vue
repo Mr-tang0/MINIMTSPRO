@@ -258,7 +258,7 @@
               </button>
             </div>
             
-            <div class="device-panel">
+            <!-- <div class="device-panel">
               <div class="panel-title">
                 <span><i class="ri-camera-line"></i> 视频引伸计</span>
                 <button class="refresh-btn" @click="refreshCameraDevices" :disabled="SystemStatus.CameraRefreshing">
@@ -277,7 +277,7 @@
               >
                 {{ SystemStatus.CameraOpened ? '断开相机' : '连接相机' }}
               </button>
-            </div>
+            </div> -->
           </div>
         </div>
       </div>
