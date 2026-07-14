@@ -28,6 +28,9 @@ func main() {
 
 	minimtsService := backend.NewMINIMTSService(systemService, projectService, user)
 	cameraService := backend.NewHIKCamera()
+	cameraService.SetMINIMTSService(minimtsService)
+	minimtsService.SetHIKCameraService(cameraService)
+	projectService.SetHIKCameraService(cameraService)
 
 	app := application.New(application.Options{
 		Name:        "MINIMTS_3",
@@ -78,21 +81,34 @@ func main() {
 			AlwaysOnTop:      true, // 可选：让更新弹窗保持在最顶层
 			Frameless:        true,
 			BackgroundColour: application.NewRGB(27, 38, 54),
-			URL:              "/update",
+			URL:              "/#/update",
 		})
 	} else {
 		fmt.Println("No update available:", err)
 	}
 
+	stopCh := make(chan struct{})
 	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
 		for {
-			now := time.Now().Format(time.RFC1123)
-			app.Event.Emit("time", now)
-			time.Sleep(time.Second)
+			select {
+			case <-ticker.C:
+				now := time.Now().Format(time.RFC1123)
+				app.Event.Emit("time", now)
+			case <-stopCh:
+				return
+			}
 		}
 	}()
 
 	err = app.Run()
+
+	minimtsService.CleanupHardware()
+	minimtsService.Stop()
+	cameraService.Stop()
+	close(stopCh)
+
 	if err != nil {
 		log.Fatal(err)
 	}

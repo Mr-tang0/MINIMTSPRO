@@ -37,14 +37,14 @@ func DefaultDICParam() *DICParam {
 	return &DICParam{
 		PreprocessEnabled:    true,
 		DenoiseKernel:        3,
-		SharpenAmount:        0.6,
-		SubsetSize:           21,
+		SharpenAmount:        0.8,
+		SubsetSize:           25,
 		StepSize:             5,
 		SearchRadius:         15,
 		TrackingSearchRadius: 3,
 		ZNCCThreshold:        0.6,
-		MaxIter:              20,
-		ConvergeEps:          1e-3,
+		MaxIter:              25,
+		ConvergeEps:          5e-3,
 		PointsCount:          7,
 		Spacing:              1,
 		Poisson:              0.3,
@@ -216,8 +216,10 @@ type ExtensometerService struct {
 	mEngines       []*icgnEngine
 	mSubsets       []dicRefSubset
 	// 上一帧的位移（用于预测）
-	prevDx float64
-	prevDy float64
+	prevDx     float64
+	prevDy     float64
+	prevPrevDx float64
+	prevPrevDy float64
 	// 参考图像的 Sobel 梯度（全局只需算一次）
 	refGradX *gocv.Mat
 	refGradY *gocv.Mat
@@ -879,14 +881,21 @@ func icgnRefineFull(defBytes []uint8, defW, defH int,
 			}
 		}
 
-		// 5. 逆合成更新: p ← p - Δp
+		// 5. 逆合成更新: p ← p - Δp（含阻尼防止发散）
+		transNorm := math.Sqrt(delta[0]*delta[0] + delta[1]*delta[1])
+		const maxStep = 2.0
+		if transNorm > maxStep {
+			scale := maxStep / transNorm
+			for j := 0; j < 6; j++ {
+				delta[j] *= scale
+			}
+		}
 		for j := 0; j < 6; j++ {
 			p[j] -= delta[j]
 		}
 
 		// 6. 收敛检查（平移分量）
-		norm := math.Sqrt(delta[0]*delta[0] + delta[1]*delta[1])
-		if norm < eps {
+		if transNorm < eps {
 			zncc := computeZNCC(defBytes, defW, defH, cxRef, cyRef, p, eng.coords, refPixels, eng.subsetSize)
 			return zncc, true
 		}
@@ -1119,12 +1128,20 @@ func (e *ExtensometerService) calculateDisplacementMat(defMat gocv.Mat) *DICFram
 	defW := defMat.Cols()
 	defH := defMat.Rows()
 
+	// 线性外推预测：pred = 2*prev - prevPrev，提供更平滑的追踪初始估计
+	predDx := e.prevDx
+	predDy := e.prevDy
+	if e.prevPrevDx != 0 || e.prevPrevDy != 0 {
+		predDx = 2*e.prevDx - e.prevPrevDx
+		predDy = 2*e.prevDy - e.prevPrevDy
+	}
+
 	var wg sync.WaitGroup
 	for i, ref := range e.mSubsets {
 		wg.Add(1)
 		go func(i int, ref dicRefSubset) {
 			defer wg.Done()
-			dx, dy, score, ok := searchSubsetDisplacementMat(defMat, ref, e.prevDx, e.prevDy, e.dicParam)
+			dx, dy, score, ok := searchSubsetDisplacementMat(defMat, ref, predDx, predDy, e.dicParam)
 			if ok {
 				var engine *icgnEngine
 				if i < len(e.mEngines) {
@@ -1153,8 +1170,32 @@ func (e *ExtensometerService) calculateDisplacementMat(defMat gocv.Mat) *DICFram
 		return nil
 	}
 
-	uMedian := medianFloat64(uList)
-	vMedian := medianFloat64(vList)
+	// IQR 离群点过滤：按位移幅值剔除异常点
+	type uvPair struct{ u, v float64 }
+	pairs := make([]uvPair, len(uList))
+	dispList := make([]float64, len(uList))
+	for i := range uList {
+		pairs[i] = uvPair{uList[i], vList[i]}
+		dispList[i] = math.Sqrt(uList[i]*uList[i] + vList[i]*vList[i])
+	}
+	validIndices := iqrFilter(dispList, 1.5)
+	if len(validIndices) == 0 {
+		validIndices = make([]int, len(uList))
+		for i := range validIndices {
+			validIndices[i] = i
+		}
+	}
+	filteredU := make([]float64, 0, len(validIndices))
+	filteredV := make([]float64, 0, len(validIndices))
+	for _, idx := range validIndices {
+		filteredU = append(filteredU, pairs[idx].u)
+		filteredV = append(filteredV, pairs[idx].v)
+	}
+
+	uMedian := medianFloat64(filteredU)
+	vMedian := medianFloat64(filteredV)
+	e.prevPrevDx = e.prevDx
+	e.prevPrevDy = e.prevDy
 	e.prevDx = uMedian
 	e.prevDy = vMedian
 
@@ -1162,7 +1203,7 @@ func (e *ExtensometerService) calculateDisplacementMat(defMat gocv.Mat) *DICFram
 		U:            uMedian,
 		V:            vMedian,
 		Displacement: math.Sqrt(uMedian*uMedian + vMedian*vMedian),
-		SubsetCount:  len(uList),
+		SubsetCount:  len(filteredU),
 	}
 }
 
@@ -1257,6 +1298,8 @@ func (e *ExtensometerService) Reset() {
 	e.mSubsets = nil
 	e.prevDx = 0
 	e.prevDy = 0
+	e.prevPrevDx = 0
+	e.prevPrevDy = 0
 	e.result = nil
 }
 
@@ -1303,4 +1346,43 @@ func medianFloat64(v []float64) float64 {
 	}
 	sort.Float64s(v)
 	return v[len(v)/2]
+}
+
+// iqrFilter 基于 IQR（四分位距）的离群点过滤，返回通过过滤的索引
+// 使用 1.5×IQR 规则：[Q1 - k*IQR, Q3 + k*IQR] 之外视为离群点
+func iqrFilter(values []float64, k float64) []int {
+	n := len(values)
+	if n < 4 {
+		indices := make([]int, n)
+		for i := range indices {
+			indices[i] = i
+		}
+		return indices
+	}
+
+	sorted := make([]float64, n)
+	copy(sorted, values)
+	sort.Float64s(sorted)
+
+	q1 := sorted[n/4]
+	q3 := sorted[3*n/4]
+	iqr := q3 - q1
+	if iqr < 1e-12 {
+		indices := make([]int, n)
+		for i := range indices {
+			indices[i] = i
+		}
+		return indices
+	}
+
+	lower := q1 - k*iqr
+	upper := q3 + k*iqr
+
+	valid := make([]int, 0, n)
+	for i, v := range values {
+		if v >= lower && v <= upper {
+			valid = append(valid, i)
+		}
+	}
+	return valid
 }

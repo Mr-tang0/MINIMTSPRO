@@ -30,6 +30,30 @@
           <span>相机控制参数</span>
         </div>
 
+        <div class="calibration-section">
+          <div class="calibration-grid">
+            <button class="calibrate-btn" @click="openCalibrationModal('camera')">
+              <i class="ri-calibrate-fill"></i>
+              <span>相机标定</span>
+            </button>
+            <button class="clear-btn" @click="clearCalibration">
+              <i class="ri-delete-bin-6-fill"></i>
+              <span>清除</span>
+            </button>
+            <button class="calibrate-btn pose-btn" @click="openCalibrationModal('pose')">
+              <i class="ri-focus-3-fill"></i>
+              <span>位姿标定</span>
+            </button>
+            <button class="clear-btn" @click="clearPoseCalibration">
+              <i class="ri-eraser-fill"></i>
+              <span>清除</span>
+            </button>
+          </div>
+          <div class="calibration-info" v-if="calibrationImageCount > 0">
+            <span class="count">{{ calibrationImageCount }} 张标定图像</span>
+          </div>
+        </div>
+
         <div class="params-list custom-scrollbar">
           <!-- 1. 曝光 -->
           <div class="param-item">
@@ -240,6 +264,33 @@
         </div>
       </aside>
     </div>
+
+    <div v-if="showCalibrationModal" class="modal-overlay" @click.self="showCalibrationModal = false">
+      <div class="calibration-modal">
+        <div class="modal-header">
+          <h3>相机标定 - 设置棋盘格参数</h3>
+          <button class="close-btn" @click="showCalibrationModal = false">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="input-group">
+            <label>角点行数</label>
+            <input type="number" v-model.number="calibrationRows" min="3" max="50" placeholder="输入行数" />
+          </div>
+          <div class="input-group">
+            <label>角点列数</label>
+            <input type="number" v-model.number="calibrationCols" min="3" max="50" placeholder="输入列数" />
+          </div>
+          <div class="input-group">
+            <label>棋盘格方块边长 (mm)</label>
+            <input type="number" v-model.number="calibrationSquareSize" min="1" step="0.1" placeholder="输入边长" />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn secondary" @click="showCalibrationModal = false">取消</button>
+          <button class="btn primary" @click="confirmCalibration">确认</button>
+        </div>
+      </div>
+    </div>
     
   </div>
 </template>
@@ -249,7 +300,6 @@ import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
 import { Events } from '@wailsio/runtime'
 import { 
   GetCameraParams,
-
   SetExposureAuto,
   SetExposureTime,
   SetGainAuto,
@@ -260,12 +310,71 @@ import {
   SetWhiteBalanceRed,
   SetGammaEnabled,
   SetGamma,
+  SetCalibrationPattern,
+  OpenCameraCalibration,
+  OpenPoseCalibration,
+  ClearCameraCalibration,
+  ClearPoseCalibration,
 } from "../../bindings/changeme/backend/hikcameraservice";
+
+
 
 const streamImgRef = ref(null)
 const isOnline = ref(false)
 const currentTime = ref(new Date())
 let offCameraFrame
+
+const showCalibrationModal = ref(false)
+const calibrationAction = ref('camera')
+const calibrationRows = ref(7)
+const calibrationCols = ref(5)
+const calibrationSquareSize = ref(25.0)
+const calibrationImageCount = ref(0)
+
+const openCalibrationModal = (action) => {
+  calibrationAction.value = action
+  showCalibrationModal.value = true
+}
+
+const confirmCalibration = async () => {
+  showCalibrationModal.value = false
+  try {
+    await SetCalibrationPattern(calibrationRows.value, calibrationCols.value, calibrationSquareSize.value)
+    if (calibrationAction.value === 'pose') {
+      await OpenPoseCalibration()
+    } else {
+      await OpenCameraCalibration()
+    }
+  } catch (err) {
+    console.error('打开棋盘格角点调整页失败:', err)
+    alert(`打开失败：${err}`)
+  }
+}
+
+const clearCalibration = async () => {
+  if (!confirm('确定要清除所有标定数据吗？')) return
+  try {
+    await ClearCalibration()
+    calibrationImageCount.value = 0
+  } catch (err) {
+    console.error('清除标定失败:', err)
+  }
+}
+
+const clearPoseCalibration = async () => {
+  if (!confirm('确定要清除位姿标定吗？')) return
+  try {
+    await ClearPoseCalibration()
+  } catch (err) {
+    console.error('清除位姿标定失败:', err)
+  }
+}
+
+const handleCalibrationAdded = (payload) => {
+  calibrationImageCount.value = payload.data.count
+}
+
+let offCalibrationAdded
 
 // 参数模式选项 - 使用 reactive 统一管理
 const cameraParams = reactive({
@@ -349,6 +458,7 @@ const loadCameraParams = async () => {
 onMounted(async () => {
   timeTicker = setInterval(updateTime, 1000)
   offCameraFrame = Events.On('hik_camera_frame', showCameraFrame)
+  offCalibrationAdded = Events.On('calibration_added', handleCalibrationAdded)
   await loadCameraParams()
 })
 
@@ -356,6 +466,7 @@ onMounted(async () => {
 onUnmounted(() => {
   clearInterval(timeTicker)
   offCameraFrame?.()
+  offCalibrationAdded?.()
 })
 
 const applyExposureAuto = async () => {
@@ -863,4 +974,173 @@ const applyGamma = async () => {
 /* 极细微滚动条 */
 .custom-scrollbar::-webkit-scrollbar { width: 4px; }
 .custom-scrollbar::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
+
+/* 标定区域 */
+.calibration-section {
+  padding: 12px 16px;
+  border-bottom: 1px solid #1e293b;
+  background: #1e293b33;
+}
+
+.calibration-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.calibrate-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  font-size: 14px;
+  transition: opacity 0.2s;
+}
+
+.calibrate-btn.pose-btn {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+}
+
+.calibrate-btn:hover {
+  opacity: 0.9;
+}
+
+.calibration-info {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin-top: 8px;
+}
+
+.calibration-info .count {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.clear-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: #111827;
+  border: 1px solid #334155;
+  color: #f87171;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 10px 8px;
+  border-radius: 8px;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.clear-btn:hover {
+  background: #f8717118;
+  border-color: #ef4444;
+}
+
+/* 模态框 */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.calibration-modal {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  width: 360px;
+  max-width: 90vw;
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #1e293b;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #e2e8f0;
+}
+
+.close-btn {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.close-btn:hover {
+  color: #f1f5f9;
+}
+
+.modal-body {
+  padding: 20px;
+}
+
+.input-group {
+  margin-bottom: 16px;
+}
+
+.input-group:last-child {
+  margin-bottom: 0;
+}
+
+.input-group label {
+  display: block;
+  font-size: 12px;
+  color: #94a3b8;
+  margin-bottom: 6px;
+}
+
+.input-group input {
+  width: 100%;
+  padding: 10px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  color: #f1f5f9;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.input-group input:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+.modal-footer {
+  display: flex;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid #1e293b;
+}
+
+.modal-footer .btn {
+  flex: 1;
+}
 </style>

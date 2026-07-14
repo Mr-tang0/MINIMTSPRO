@@ -188,23 +188,23 @@
               </div>
 
               <div v-else class="ave-flow animate-in">
-                <button class="btn-ave"><i class="ri-edit-2-line"></i> 绘制标距方向</button>
+                <div class="dir-row">
+                  <button class="btn-ave" @click="openDirectionSelector"><i class="ri-edit-2-line"></i> 绘制方向</button>
+                  <div class="dir-info-line">{{ form.directionLine || '未绘制' }}</div>
+                </div>
                 <div class="marker-row">
-                  <div class="marker-btn-box">
-                    <button class="btn-ave mini" @click="openMarkerSelector('A')">选取 A 点</button>
-                    <div class="res-box">{{ form.markerA || '--, --' }}</div>
-                  </div>
-                  <div class="marker-btn-box">
-                    <button class="btn-ave mini" @click="openMarkerSelector('B')">选取 B 点</button>
-                    <div class="res-box">{{ form.markerB || '--, --' }}</div>
-                  </div>
+                  <button class="btn-ave mini" @click="openMarkerSelector('A')">选取 A 点</button>
+                  <div class="res-box">{{ form.markerA || '--, --' }}</div>
+                  <button class="btn-ave mini" @click="openMarkerSelector('B')">选取 B 点</button>
+                  <div class="res-box">{{ form.markerB || '--, --' }}</div>
                 </div>
                 <div class="calib-row">
-                  <button class="btn-ave mini">比例标定</button>
-                  <div class="calib-inputs">
-                    <div class="unit-in"><span>Pix</span><input v-model="form.pixLength" type="number" /></div>
-                    <div class="unit-in"><span>mm</span><input v-model="form.physLength" type="number" /></div>
-                  </div>
+                  <button class="btn-ave mini" @click="openCalibration">比例标定</button>
+                  <div class="calib-unit"> </div>
+                  <input type="number" class="calib-input" v-model.number="form.pixLength" placeholder="像素" />
+                  <div class="calib-unit">px = </div>
+                  <input type="number" class="calib-input" v-model.number="form.physLength" placeholder="实际距离(mm)" />
+                  <div class="calib-unit">mm</div>
                 </div>
               </div>
             </div>
@@ -226,7 +226,7 @@
 import { reactive, ref, computed, onMounted, onUnmounted } from 'vue';
 import { Events } from '@wailsio/runtime';
 import { GetActiveConfig, SaveProjectConfig, SelectDirectory } from '../../bindings/changeme/backend/projectservice';
-import { OpenROISelector } from '../../bindings/changeme/backend/hikcameraservice';
+import { OpenROISelector, OpenDirectionSelector, OpenCalibrationSelector, SetResolutionRatio } from '../../bindings/changeme/backend/hikcameraservice';
 
 const props = defineProps({
   isCameraConnected: {
@@ -264,6 +264,7 @@ const form = reactive({
   videoExtEnable: false,
   markerA: '',
   markerB: '',
+  directionLine: '',
   pixLength: 400,
   physLength: 25,
   poissonEnable: false
@@ -297,6 +298,8 @@ const handleSelectDir = async (field) => {
 };
 
 let offROISelected
+let offDirectionSelected
+let offCalibrationSelected
 
 const formatROI = (roi) => {
   if (!roi) return '--, --'
@@ -306,6 +309,22 @@ const formatROI = (roi) => {
 const openMarkerSelector = async (label) => {
   try {
     await OpenROISelector(label)
+  } catch (err) {
+    alert(err)
+  }
+}
+
+const openDirectionSelector = async () => {
+  try {
+    await OpenDirectionSelector()
+  } catch (err) {
+    alert(err)
+  }
+}
+
+const openCalibration = async () => {
+  try {
+    await OpenCalibrationSelector()
   } catch (err) {
     alert(err)
   }
@@ -321,9 +340,31 @@ const handleROISelected = (payload) => {
   }
 }
 
+const formatLine = (line) => {
+  if (!line) return '未绘制'
+  return `(${Math.round(line.x1)},${Math.round(line.y1)})→(${Math.round(line.x2)},${Math.round(line.y2)})`
+}
+
+const handleDirectionSelected = (payload) => {
+  const data = payload?.data ?? payload
+  if (data?.line) {
+    form.directionLine = formatLine(data.line)
+  }
+}
+
+const handleCalibrationSelected = (payload) => {
+  const data = payload?.data ?? payload
+  if (data?.length) {
+    form.pixLength = data.length
+  }
+}
+
 const handleSubmit = async() => {
   try {
     await SaveProjectConfig(form);
+    if (form.pixLength && form.physLength) {
+      await SetResolutionRatio(form.pixLength, form.physLength)
+    }
     emit('submit', form);
   } catch (err) {
     alert("项目保存失败: " + err);
@@ -332,6 +373,8 @@ const handleSubmit = async() => {
 
 onMounted(async () => {
   offROISelected = Events.On('hik_roi_selected', handleROISelected)
+  offDirectionSelected = Events.On('hik_direction_selected', handleDirectionSelected)
+  offCalibrationSelected = Events.On('hik_calibration_selected', handleCalibrationSelected)
   try {
     const config = await GetActiveConfig();
     if (config) {
@@ -344,6 +387,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   offROISelected?.()
+  offDirectionSelected?.()
+  offCalibrationSelected?.()
 })
 </script>
 
@@ -446,13 +491,14 @@ onUnmounted(() => {
 
 /* AVE 流程 */
 .ave-flow { display: flex; flex-direction: column; gap: 10px; }
-.marker-row { display: flex; gap: 10px; }
-.marker-btn-box { flex: 1; display: flex; flex-direction: column; gap: 4px; }
-.res-box { background: #0f172a; border: 1px solid #334155; border-radius: 4px; padding: 5px; font-size: 11px; text-align: center; color: #3b82f6; }
-.calib-row { display: flex; align-items: center; gap: 10px; background: rgba(15,23,42,0.3); padding: 8px; border-radius: 6px; }
-.calib-inputs { display: flex; gap: 8px; }
-.unit-in { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #64748b; }
-.unit-in input { width: 60px; padding: 4px; }
+.dir-row { display: flex; align-items: center; gap: 10px; }
+.dir-info-line { flex: 1; font-size: 11px; color: #06b6d4; background: rgba(6,182,212,0.1); border: 1px solid rgba(6,182,212,0.2); border-radius: 4px; padding: 8px 10px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
+.marker-row { display: flex; align-items: center; gap: 8px; }
+.marker-row .btn-ave.mini { flex-shrink: 0; }
+.res-box { flex: 1; background: #0f172a; border: 1px solid #334155; border-radius: 4px; padding: 4px 6px; font-size: 10px; text-align: center; color: #3b82f6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.calib-row { display: flex; align-items: center; gap: 8px; }
+.calib-input { width: 80px; padding: 6px 8px; border: 1px solid #334155; border-radius: 4px; background: #0f172a; color: #f1f5f9; font-size: 11px; text-align: center; }
+.calib-input::placeholder { color: #64748b; }
 
 /* 复选框美化 */
 .check-item { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: bold; position: relative; }
@@ -467,10 +513,10 @@ input[type="checkbox"] { display: none; }
 
 /* 按钮 */
 .btn-ave { 
-  background: #334155; border: 1px solid #475569; color: white; padding: 8px; 
-  border-radius: 6px; font-size: 12px; cursor: pointer; font-weight: bold;
+  background: #334155; border: 1px solid #475569; color: white; padding: 8px 16px; 
+  border-radius: 6px; font-size: 12px; cursor: pointer; font-weight: bold; min-width: 100px; line-height: 1.2;
 }
-.btn-ave.mini { padding: 4px 8px; font-size: 11px; }
+.btn-ave.mini { padding: 6px 14px; font-size: 11px; line-height: 1.2; min-width: 80px; }
 
 /* 通用输入 */
 .form-row { display: flex; gap: 15px; }

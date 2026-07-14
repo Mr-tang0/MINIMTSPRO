@@ -23,6 +23,9 @@ type Status struct {
 	VideoStrain float64 `json:"videoStrain"` // 当前视频应变值
 	Limit       int     `json:"limit"`       // 当前限位（0-无，1-端口1，2-端口2）
 	Time        float64 `json:"time"`        // 实验时间，单位秒
+
+	CameraConnected  bool `json:"cameraConnected"`  // 相机是否已连接
+	MINIMTSConnected bool `json:"minimtsConnected"` // MINIMTS 设备是否已连接
 }
 
 const Debug = false
@@ -37,6 +40,7 @@ type MINIMTSService struct {
 	project *ProjectService
 	system  *SystemService
 	app     *application.App // Wails 应用实例
+	camera  *HIKCameraService
 
 	zeroDisp         float64 // 零位位移值，用于计算相对位移
 	zeroLoad         float64 // 零位载荷值，用于计算相对载荷
@@ -48,12 +52,15 @@ type MINIMTSService struct {
 
 	cameraWin *application.WebviewWindow
 	dataCache map[string][]float64 // 缓存数据
+
+	stopCh   chan struct{}
+	stopOnce sync.Once
 }
 
 func NewMINIMTSService(system *SystemService, project *ProjectService, user *User) *MINIMTSService {
 	project.SetUser(user)
 
-	return &MINIMTSService{
+	svc := &MINIMTSService{
 		MTSStatus: Status{
 			Load:        0,
 			Stress:      0,
@@ -70,11 +77,36 @@ func NewMINIMTSService(system *SystemService, project *ProjectService, user *Use
 		project:          project,
 		startTime:        time.Now(),
 		displayDirection: 1,
+		stopCh:           make(chan struct{}),
 	}
+
+	// 启动独立的前端数据推送协程（不依赖 MINIMTS 设备连接）
+	go svc.uiPolling()
+
+	return svc
 }
 
 func (m *MINIMTSService) SetApp(app *application.App) {
 	m.app = app
+}
+
+func (m *MINIMTSService) SetHIKCameraService(camera *HIKCameraService) {
+	m.camera = camera
+}
+
+func (m *MINIMTSService) CallExit() {
+	m.CleanupHardware()
+}
+
+func (m *MINIMTSService) CleanupHardware() {
+	if m.camera != nil {
+		if err := m.camera.CloseHIKCamera(); err != nil {
+			fmt.Println("关闭相机失败:", err)
+		}
+	}
+	if err := m.CloseMINIMTS(); err != nil {
+		fmt.Println("关闭MINIMTS失败:", err)
+	}
 }
 
 // *************************************界面管理区 开始*************************************
@@ -105,7 +137,7 @@ func (m *MINIMTSService) CallHIKCameraWindow() error {
 			TitleBar:                application.MacTitleBarHiddenInset,
 		},
 		BackgroundColour: application.NewRGB(27, 38, 54),
-		URL:              "/camera",
+		URL:              "/#/camera",
 	})
 
 	return nil
@@ -151,17 +183,18 @@ func (m *MINIMTSService) OpenMINIMTS(name string) error {
 
 	fmt.Printf("串口 %s 打开成功\n", name)
 	m.startTime = time.Now()
+	m.setMINIMTSConnected(true)
 
 	// 启动后台高速查询协程
 	m.isPolling = true
 	go m.Polling()
-	go m.UIPolling()
 
 	return nil
 }
 
 func (m *MINIMTSService) CloseMINIMTS() error {
 	m.isPolling = false // 停止轮询
+	m.setMINIMTSConnected(false)
 
 	if m.comm != nil {
 		err := m.comm.Disconnect()
@@ -169,6 +202,14 @@ func (m *MINIMTSService) CloseMINIMTS() error {
 		return err
 	}
 	return nil
+}
+
+// Stop 停止所有后台协程（应用退出时调用）
+func (m *MINIMTSService) Stop() {
+	m.stopOnce.Do(func() {
+		close(m.stopCh)
+	})
+	m.isPolling = false
 }
 
 // IsOpened 检查设备是否已打开
@@ -240,13 +281,51 @@ func (m *MINIMTSService) Polling() {
 
 }
 
-// 收集所有传感器数据打包给前端:子线程，固定5Hz
-func (m *MINIMTSService) UIPolling() {
-	for m.isPolling {
-		m.statusMu.RLock()
-		m.app.Event.Emit("update_status", m.MTSStatus)
-		m.statusMu.RUnlock()
-		time.Sleep(100 * time.Millisecond)
+// setMINIMTSConnected 设置 MINIMTS 设备连接状态
+func (m *MINIMTSService) setMINIMTSConnected(connected bool) {
+	m.statusMu.Lock()
+	defer m.statusMu.Unlock()
+	m.MTSStatus.MINIMTSConnected = connected
+}
+
+// setCameraConnected 设置相机连接状态
+func (m *MINIMTSService) setCameraConnected(connected bool) {
+	m.statusMu.Lock()
+	defer m.statusMu.Unlock()
+	m.MTSStatus.CameraConnected = connected
+}
+
+// SetVideoData 由 HIKCameraService 调用，推送视频位移/应变数据并保存到缓存
+func (m *MINIMTSService) SetVideoData(disp, strain float64) {
+	m.statusMu.Lock()
+	defer m.statusMu.Unlock()
+	m.MTSStatus.VideoDisp = disp - m.zeroVideoDisp
+	m.MTSStatus.VideoStrain = strain
+	m.MTSStatus.Time = float64(time.Now().UnixMilli()-m.startTime.UnixMilli()) / 1000.0
+
+	// 保存视频数据到缓存
+	m.dataCache["time"] = append(m.dataCache["time"], m.MTSStatus.Time)
+	m.dataCache["videoDisp"] = append(m.dataCache["videoDisp"], m.MTSStatus.VideoDisp)
+	m.dataCache["videoStrain"] = append(m.dataCache["videoStrain"], m.MTSStatus.VideoStrain)
+}
+
+// uiPolling 独立前端数据推送协程，始终运行，10Hz
+// 不依赖任何设备连接状态，有数据就发，无数据就发零
+func (m *MINIMTSService) uiPolling() {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			m.statusMu.RLock()
+			status := m.MTSStatus
+			m.statusMu.RUnlock()
+			if m.app != nil {
+				m.app.Event.Emit("update_status", status)
+			}
+		case <-m.stopCh:
+			return
+		}
 	}
 }
 

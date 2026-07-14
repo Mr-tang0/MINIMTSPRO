@@ -36,7 +36,7 @@
             <span class="btn-tip">文件</span>
           </div>
           
-          <div v-if="SystemStatus.CameraOpened" class="icon-wrapper" >
+          <div v-if="SystemStatus.CameraOpened" class="icon-wrapper" @click="CallHIKCameraWindow">
             <i class="ri-camera-lens-line icon"></i>
             <span class="btn-tip">相机</span>
           </div>
@@ -62,7 +62,11 @@
         <div class="global-status">
           <div class="connection-badge" :class="{ connected: SystemStatus.MINIMTSOpened}">
             <span class="status-dot"></span>
-            <span>{{ SystemStatus.MINIMTSOpened?'已连接':'未连接' }}</span>
+            <span>MINIMTS {{ SystemStatus.MINIMTSOpened?'已连接':'未连接' }}</span>
+          </div>
+          <div class="connection-badge camera" :class="{ connected: DataValues.cameraConnected}">
+            <span class="status-dot"></span>
+            <span>相机 {{ DataValues.cameraConnected?'已连接':'未连接' }}</span>
           </div>
         </div>
       </header>
@@ -363,7 +367,9 @@ const DataValues = reactive({
   videoDisp: 0.0,
   strain: 0.0,
   videoStrain: 0.0,
-  time: 0.0
+  time: 0.0,
+  cameraConnected: false,
+  minimtsConnected: false
 });
 
 // 北京时间
@@ -546,13 +552,14 @@ const refreshChartUI = () => {
     case 'load_time':
       legendData.push('载荷');
       series.push({
-        name: '载荷',
-        type: 'line',
-        smooth: true,
-        symbol: 'none',
-        data: DataSerials.time.map((t, i) => [t, DataSerials.load[i] || 0]),
-        lineStyle: { color: '#3b82f6', width: 2 }
-      });
+          name: '载荷',
+          type: 'line',
+          smooth: true,
+          symbol: 'none',
+          data: DataSerials.time.map((t, i) => [t, DataSerials.load[i] || 0]),
+          lineStyle: { color: '#3b82f6', width: 2 },
+          itemStyle: { color: '#3b82f6' }
+        });
       if (DataSerials.time.length > 0) {
         xMin = Math.min(...DataSerials.time);
         xMax = Math.max(...DataSerials.time);
@@ -564,13 +571,14 @@ const refreshChartUI = () => {
     case 'disp_video':
       legendData.push('位移');
       series.push({
-        name: '位移',
-        type: 'line',
-        smooth: true,
-        symbol: 'none',
-        data: DataSerials.time.map((t, i) => [t, DataSerials.disp[i] || 0]),
-        lineStyle: { color: '#10b981', width: 2 }
-      });
+          name: '位移',
+          type: 'line',
+          smooth: true,
+          symbol: 'none',
+          data: DataSerials.time.map((t, i) => [t, DataSerials.disp[i] || 0]),
+          lineStyle: { color: '#10b981', width: 2 },
+          itemStyle: { color: '#10b981' }
+        });
       if (SystemStatus.CameraOpened) {
         legendData.push('视频位移');
         series.push({
@@ -579,7 +587,8 @@ const refreshChartUI = () => {
           smooth: true,
           symbol: 'none',
           data: DataSerials.time.map((t, i) => [t, DataSerials.videoDisp[i] || 0]),
-          lineStyle: { color: '#3b82f6', width: 2 }
+          lineStyle: { color: '#3b82f6', width: 2 },
+          itemStyle: { color: '#3b82f6' }
         });
       }
       if (DataSerials.time.length > 0) {
@@ -596,13 +605,14 @@ const refreshChartUI = () => {
     case 'strain_video':
       legendData.push('应变');
       series.push({
-        name: '应变',
-        type: 'line',
-        smooth: true,
-        symbol: 'none',
-        data: DataSerials.time.map((t, i) => [t, DataSerials.strain[i] || 0]),
-        lineStyle: { color: '#8b5cf6', width: 2 }
-      });
+          name: '应变',
+          type: 'line',
+          smooth: true,
+          symbol: 'none',
+          data: DataSerials.time.map((t, i) => [t, DataSerials.strain[i] || 0]),
+          lineStyle: { color: '#8b5cf6', width: 2 },
+          itemStyle: { color: '#8b5cf6' }
+        });
       if (SystemStatus.CameraOpened) {
         legendData.push('视频应变');
         series.push({
@@ -611,7 +621,8 @@ const refreshChartUI = () => {
           smooth: true,
           symbol: 'none',
           data: DataSerials.time.map((t, i) => [t, DataSerials.videoStrain[i] || 0]),
-          lineStyle: { color: '#ec4899', width: 2 }
+          lineStyle: { color: '#ec4899', width: 2 },
+          itemStyle: { color: '#ec4899' }
         });
       }
       if (DataSerials.time.length > 0) {
@@ -628,13 +639,14 @@ const refreshChartUI = () => {
     case 'stress_strain':
       legendData.push('应力-应变');
       series.push({
-        name: '应力-应变',
-        type: 'line',
-        smooth: true,
-        symbol: 'none',
-        data: DataSerials.strain.map((s, i) => [s, DataSerials.stress[i] || 0]),
-        lineStyle: { color: '#f59e0b', width: 2 }
-      });
+          name: '应力-应变',
+          type: 'line',
+          smooth: true,
+          symbol: 'none',
+          data: DataSerials.strain.map((s, i) => [s, DataSerials.stress[i] || 0]),
+          lineStyle: { color: '#f59e0b', width: 2 },
+          itemStyle: { color: '#f59e0b' }
+        });
       if (SystemStatus.CameraOpened) {
         legendData.push('应力-视频应变');
         series.push({
@@ -643,7 +655,8 @@ const refreshChartUI = () => {
           smooth: true,
           symbol: 'none',
           data: DataSerials.videoStrain.map((s, i) => [s, DataSerials.stress[i] || 0]),
-          lineStyle: { color: '#06b6d4', width: 2 }
+          lineStyle: { color: '#06b6d4', width: 2 },
+          itemStyle: { color: '#06b6d4' }
         });
       }
       if (DataSerials.strain.length > 0 || (SystemStatus.CameraOpened && DataSerials.videoStrain.length > 0)) {
@@ -745,7 +758,6 @@ onMounted(async () => {
 
   Events.On('update_status', (status) => {
     const data = status.data;
-    console.log('update_status', data);
     
     if (data.load !== undefined) DataValues.load = data.load;
     if (data.stress !== undefined) DataValues.stress = data.stress;
@@ -754,6 +766,8 @@ onMounted(async () => {
     if (data.strain !== undefined) DataValues.strain = data.strain;
     if (data.videoStrain !== undefined) DataValues.videoStrain = data.videoStrain;
     if (data.time !== undefined) DataValues.time = data.time;
+    if (data.cameraConnected !== undefined) DataValues.cameraConnected = data.cameraConnected;
+    if (data.minimtsConnected !== undefined) DataValues.minimtsConnected = data.minimtsConnected;
     
     DataSerials.time.push(data.time || DataSerials.time.length * 0.05);
     DataSerials.load.push(data.load || 0);
@@ -993,6 +1007,16 @@ onUnmounted(() => {
 .connection-badge.connected .status-dot {
   background: var(--success);
   box-shadow: 0 0 8px var(--success);
+}
+
+.connection-badge.camera.connected {
+  background: rgba(6, 182, 212, 0.1);
+  color: #06b6d4;
+}
+
+.connection-badge.camera.connected .status-dot {
+  background: #06b6d4;
+  box-shadow: 0 0 8px #06b6d4;
 }
 
 /* 数据卡片网格 */
@@ -1412,8 +1436,8 @@ onUnmounted(() => {
 }
 
 .project-modal {
-  width: 80%;
-  height: 90%;
+  /* width: 80%;
+  height: 90%; */
   display: flex;
   flex-direction: column;
 }

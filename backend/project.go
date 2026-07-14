@@ -38,24 +38,27 @@ type ProjectConfig struct {
 	DicFolder   string `json:"dicFolder"`
 	DicFileName string `json:"dicFileName"`
 
-	VideoExtEnable bool    `json:"videoExtEnable"`
-	MarkerA        string  `json:"markerA"`
-	MarkerB        string  `json:"markerB"`
-	PixLength      float64 `json:"pixLength"`
-	PhysLength     float64 `json:"physLength"`
-	PoissonEnable  bool    `json:"poissonEnable"`
+	VideoExtEnable    bool           `json:"videoExtEnable"`
+	MarkerA           string         `json:"markerA"`
+	MarkerB           string         `json:"markerB"`
+	DirectionLine     string         `json:"directionLine"`
+	DirectionLineData *LineDirection `json:"directionLineData,omitempty"`
+	PixLength         float64        `json:"pixLength"`
+	PhysLength        float64        `json:"physLength"`
+	PoissonEnable     bool           `json:"poissonEnable"`
 }
 
 type ProjectService struct {
 	// ctx          context.Context
-	ActiveConfig *ProjectConfig
-	user         *User
+	ActiveConfig  *ProjectConfig
+	user          *User
+	cameraService *HIKCameraService
 }
 
 func NewProjectService(user *User) *ProjectService {
 	p := &ProjectService{
 		ActiveConfig: &ProjectConfig{
-			Experimenter:    user.Name,
+			Experimenter:    user.Username,
 			SampleNo:        "Sample001",
 			TestDate:        time.Now().Format("2006-01-02 15:04:05"),
 			SampleShape:     "dogbone",
@@ -91,16 +94,20 @@ func (p *ProjectService) SetUser(user *User) {
 	p.user = user
 }
 
+func (p *ProjectService) SetHIKCameraService(camera *HIKCameraService) {
+	p.cameraService = camera
+}
+
 // LoadProjectConfigFromFile 给定路径读取历史项目信息
 func (p *ProjectService) LoadProjectConfigFromFile() (*ProjectConfig, error) {
-	fmt.Println("当前用户:", p.user.Name)
+	fmt.Println("当前用户:", p.user.Username)
 	path, _ := os.UserHomeDir()
-	path = filepath.Join(path, "PIMS", "MINIMTS", "localuser", fmt.Sprintf("%s_%s", p.user.Name, p.user.ID), "config.json")
+	path = filepath.Join(path, "PIMS", "MINIMTS", "localuser", fmt.Sprintf("%s_%s", p.user.Username, p.user.ID), "config.json")
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		fmt.Printf("未找到历史项目配置文件: %s\n", path)
 		defaultConfig := ProjectConfig{
-			Experimenter:    p.user.Name,
+			Experimenter:    p.user.Username,
 			SampleNo:        "Sample001",
 			TestDate:        time.Now().Format("2006-01-02 15:04:05"),
 			SampleShape:     "dogbone",
@@ -156,8 +163,15 @@ func (p *ProjectService) LoadProjectConfigFromFile() (*ProjectConfig, error) {
 func (p *ProjectService) SaveProjectConfig(config ProjectConfig) error {
 	config.TestDate = time.Now().Format("2006-01-02 15:04:05")
 
+	// 从相机服务同步方向线段数据结构到配置
+	if p.cameraService != nil {
+		if line, ok := p.cameraService.GetDirectionLine(); ok {
+			config.DirectionLineData = &line
+		}
+	}
+
 	fullPath, _ := os.UserHomeDir()
-	fullPath = filepath.Join(fullPath, "PIMS", "MINIMTS", "localuser", fmt.Sprintf("%s_%s", p.user.Name, p.user.ID), "config.json")
+	fullPath = filepath.Join(fullPath, "PIMS", "MINIMTS", "localuser", fmt.Sprintf("%s_%s", p.user.Username, p.user.ID), "config.json")
 
 	jsonData, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
@@ -175,7 +189,22 @@ func (p *ProjectService) SaveProjectConfig(config ProjectConfig) error {
 
 // GetActiveConfig 获取后端当前持有的配置（供前端调用）
 func (p *ProjectService) GetActiveConfig() (*ProjectConfig, error) {
-	return p.LoadProjectConfigFromFile()
+	config, err := p.LoadProjectConfigFromFile()
+	if err != nil {
+		return config, err
+	}
+
+	// 加载后将方向线段数据恢复到相机服务
+	if p.cameraService != nil && config.DirectionLineData != nil {
+		p.cameraService.SetDirectionLineFromConfig(*config.DirectionLineData)
+	}
+
+	// 加载后恢复比例标定系数
+	if p.cameraService != nil && config.PixLength > 0 && config.PhysLength > 0 {
+		p.cameraService.SetResolutionRatio(config.PixLength, config.PhysLength)
+	}
+
+	return config, nil
 }
 
 // SelectDirectory 选择目录（供前端调用）

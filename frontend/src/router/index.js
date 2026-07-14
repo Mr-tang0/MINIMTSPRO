@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router'
 import Login from '../components/Login.vue'
 import Update from '../components/Update.vue'
 import MINIMTS from '../components/MINIMTS.vue'
@@ -39,14 +39,14 @@ const routes = [
     component: Project
   },
   {
-    path: '/roi-selector',
-    name: 'ROISelector',
+    path: '/extensometer',
+    name: 'Extensometer',
     component: ROISelector
   },
 ]
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHashHistory(),
   routes
 })
 

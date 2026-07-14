@@ -1,14 +1,18 @@
 <template>
   <div class="update-page">
-    <!-- 左侧 Logo 区域 -->
     <div class="logo-container">
       <img src="/wails.png" class="update-logo" alt="Logo" />
     </div>
 
-    <!-- 右侧内容与操作区域 -->
     <div class="content-container">
       <h2>发现新版本 {{ updateInfo.tagName }}</h2>
+      <p class="description">当前版本: {{ updateInfo.currentVersion }}</p>
       <p class="description">点击更新获取更好体验！</p>
+
+      <div class="release-notes" v-if="updateInfo.body">
+        <h3>更新内容</h3>
+        <pre>{{ updateInfo.body }}</pre>
+      </div>
 
       <div class="update-actions">
         <button class="btn btn-primary" @click="handleUpdate">更新</button>
@@ -26,21 +30,26 @@ import { Browser, Window } from '@wailsio/runtime'
 
 const updateInfo = ref({
   tagName: '无',
-  htmlUrl: 'https://github.com'
+  currentVersion: '未知',
+  htmlUrl: '',
+  browserDownloadUrl: '',
+  body: ''
 })
 
 onMounted(async () => {
     try{
-        // 调用我们在 Go 后端写好的获取缓存信息的方法
         const release = await GetCachedRelease()
 
         if (release) {
-            updateInfo.value.tagName = release.tag_name
-            updateInfo.value.htmlUrl = release.html_url
-            if (release.assets.length > 0) {
-                updateInfo.value.htmlUrl = release.assets[0].browser_download_url
-            }
+            updateInfo.value.tagName = release.tag_name || release.TagName || '无'
+            updateInfo.value.currentVersion = release.current_version || release.CurrentVersion || '未知'
+            updateInfo.value.htmlUrl = release.html_url || release.HTMLURL || ''
+            updateInfo.value.browserDownloadUrl = release.browser_download_url || release.BrowserDownloadURL || ''
+            updateInfo.value.body = release.body || release.Body || ''
             
+            if (!updateInfo.value.browserDownloadUrl && release.assets && release.assets.length > 0) {
+                updateInfo.value.browserDownloadUrl = release.assets[0].browser_download_url
+            }
         }
         else{
             console.log("No cached release found")
@@ -52,10 +61,10 @@ onMounted(async () => {
 
 })
 
-// 点击更新按钮
 const handleUpdate = () => {
-  if (updateInfo.value.htmlUrl) {
-    Browser.OpenURL(updateInfo.value.htmlUrl) 
+  const url = updateInfo.value.browserDownloadUrl || updateInfo.value.htmlUrl
+  if (url) {
+    Browser.OpenURL(url) 
     
     try {
       Window.Close() 
@@ -65,12 +74,11 @@ const handleUpdate = () => {
   }
 }
 
-// 点击取消按钮
 const handleCancel = () => {
   try {
-    Window.Close() // Wails v3 原生关闭当前窗口
+    Window.Close()
   } catch(e) {
-    window.close() // 兜底降级方案
+    window.close()
   }
 }
 
@@ -78,7 +86,6 @@ const handleCancel = () => {
 </script>
 
 <style scoped>
-/* 完整填充界面，使用浅色背景渐变，横向弹性布局 */
 .update-page {
   position: fixed;
   width: 100vw; 
@@ -95,10 +102,9 @@ const handleCancel = () => {
   gap: 60px; 
   padding: 40px;
   font-family: 'Inter', -apple-system, system-ui, sans-serif;
-  z-index: 9999;        /* 确保它在最上层 */
+  z-index: 9999;
 }
 
-/* Logo 样式调整，适应浅色背景 */
 .logo-container {
   flex-shrink: 0;
   display: flex;
@@ -116,34 +122,59 @@ const handleCancel = () => {
   border: 1px solid #e2e8f0;
 }
 
-/* 右侧内容区，左对齐 */
 .content-container {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   text-align: left;
+  max-width: 500px;
 }
 
-/* 浅色主题的文字样式 */
 h2 {
-  color: #1e293b; /* 深色文字强调 */
+  color: #1e293b;
   font-size: 1.8rem;
   margin: 0 0 12px 0;
   font-weight: 700;
 }
 
 .description {
-  color: #64748b; /* 灰色次要文字 */
+  color: #64748b;
   font-size: 1.05rem;
-  margin: 0 0 32px 0;
+  margin: 0 0 16px 0;
 }
 
-/* 按钮组样式 */
+.release-notes {
+  width: 100%;
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 24px;
+  border: 1px solid #e2e8f0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.release-notes h3 {
+  color: #334155;
+  font-size: 1rem;
+  margin: 0 0 12px 0;
+  font-weight: 600;
+}
+
+.release-notes pre {
+  color: #475569;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  font-family: inherit;
+}
+
 .update-actions {
   display: flex;
   gap: 16px;
   width: 100%;
-  max-width: 320px; /* 限制按钮最大宽度使之美观 */
+  max-width: 320px;
 }
 
 .btn {
@@ -166,7 +197,6 @@ h2 {
   transform: scale(0.98);
 }
 
-/* 主要操作：更新按钮 */
 .btn-primary {
   background: #3b82f6;
   color: white;
@@ -177,7 +207,6 @@ h2 {
   background: #2563eb;
 }
 
-/* 次要操作：取消按钮 (适配浅色主题) */
 .btn-secondary {
   background: #ffffff;
   color: #475569;

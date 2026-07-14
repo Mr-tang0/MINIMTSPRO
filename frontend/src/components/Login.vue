@@ -111,9 +111,9 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { LoginService } from '../../bindings/changeme/backend/'
-import { Browser, Window } from '@wailsio/runtime'
+import { Window } from '@wailsio/runtime'
 
 const isRegister = ref(false)
 const errorMsg = ref('')
@@ -133,53 +133,92 @@ const toggleRegister = () => {
   errorMsg.value = ''
 }
 
+const validatePassword = (value) => {
+  if (value.length < 6) {
+    errorMsg.value = '密码长度不能少于6位'
+    return false
+  }
+  return true
+}
+
+const getAuthError = (user) => user?.app_json?.error || user?.AppJson?.error || ''
+
 const handleLogin = async () => {
   if (!username.value || !password.value) {
     errorMsg.value = '请填写完整的登录信息'
     return
   }
-  errorMsg.value = ''
-  const user = await LoginService.Login(username.value, password.value)
-  if (!user) {
-    errorMsg.value = '用户名或密码错误'
-    return
-  }
+  if (!(username.value === 'admin' && password.value === 'admin') && !validatePassword(password.value)) return
+
   try {
+    errorMsg.value = ''
+    const user = await LoginService.Login(username.value, password.value)
+    const authError = getAuthError(user)
+    if (authError) {
+      errorMsg.value = authError
+      return
+    }
+    if (!user?.name && !user?.id) {
+      errorMsg.value = '用户名或密码错误'
+      return
+    }
     await LoginService.CallMINIMTSWindow()
     try {
-      Window.Close() 
+      Window.Close()
     } catch(e) {
       window.close()
     }
-    
   } catch (error) {
-    errorMsg.value = '登录失败'
-    return
+    errorMsg.value = error?.message || String(error) || '登录失败'
   }
 }
 
-const handleRegister = () => {
+const handleRegister = async () => {
   if (!registerForm.username || !registerForm.email || !registerForm.password || !registerForm.confirmPassword) {
     errorMsg.value = '请填写完整的注册信息'
     return
   }
+  if (!validatePassword(registerForm.password)) return
   if (registerForm.password !== registerForm.confirmPassword) {
     errorMsg.value = '两次输入的密码不一致'
     return
   }
-  errorMsg.value = ''
-  alert(`注册成功！用户名: ${registerForm.username}`)
-  toggleRegister()
+
+  try {
+    errorMsg.value = ''
+    const user = await LoginService.Login(`__register__:${JSON.stringify({ username: registerForm.username, email: registerForm.email })}`, registerForm.password)
+    const authError = getAuthError(user)
+    if (authError) {
+      errorMsg.value = authError
+      return
+    }
+    username.value = registerForm.username
+    password.value = ''
+    toggleRegister()
+  } catch (error) {
+    errorMsg.value = error?.message || String(error) || '注册失败'
+  }
 }
+
+onMounted(async () => {
+  try {
+    const info = await LoginService.Login('__last_login__', '000000')
+    if (info?.username) {
+      username.value = info.username
+    }
+  } catch (error) {
+    console.error(error)
+  }
+})
 </script>
 
 <style scoped>
 /* 页面基础布局 */
 .login-page {
   position: relative;
-  height: 100vh;
-  width: 100vw;
-  
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
   overflow: hidden;
   display: flex;
   align-items: center;
