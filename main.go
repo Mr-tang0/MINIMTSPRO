@@ -1,7 +1,7 @@
 package main
 
 import (
-	"changeme/backend"
+	"MINIMTSPRO/backend"
 	"embed"
 	_ "embed"
 	"fmt"
@@ -14,34 +14,30 @@ import (
 //go:embed all:frontend/dist/*
 var assets embed.FS
 
-func init() {
-	application.RegisterEvent[string]("time")
-}
-
 func main() {
-	user := &backend.User{}
-	updateService := &backend.UpdateService{}
-	loginService := backend.NewLoginService(user)
+	container := backend.NewServiceContainer()
 
-	projectService := backend.NewProjectService(user)
-	systemService := backend.NewSystemService()
-
-	minimtsService := backend.NewMINIMTSService(systemService, projectService, user)
-	cameraService := backend.NewHIKCamera()
-	cameraService.SetMINIMTSService(minimtsService)
-	minimtsService.SetHIKCameraService(cameraService)
-	projectService.SetHIKCameraService(cameraService)
+	container.Register("User", &backend.User{})
+	container.Register("SystemService", backend.NewSystemService())
+	container.Register("ProjectService", backend.NewProjectService())
+	container.Register("UpdateService", &backend.UpdateService{})
+	container.Register("AppService", backend.NewAppService())
+	container.Register("LoginService", backend.NewLoginService())
+	container.Register("MINIMTSService", backend.NewMINIMTSService())
+	container.Register("HIKCameraService", backend.NewHIKCamera())
 
 	app := application.New(application.Options{
-		Name:        "MINIMTS_3",
-		Description: "A demo of using raw HTML & CSS",
+		Name:        "MINIMTPRO",
+		Description: "MINIMTPRO 是一个基于 MINIMTS 的专业版软件，提供更功能丰富的 MINIMTS 控制和管理功能。",
 		Services: []application.Service{
-			application.NewService(updateService),
-			application.NewService(loginService),
-			application.NewService(minimtsService),
-			application.NewService(cameraService),
-			application.NewService(projectService),
-			application.NewService(systemService),
+			application.NewService(container),
+			application.NewService(container.GetUpdateService()),
+			application.NewService(container.GetLoginService()),
+			application.NewService(container.GetAppService()),
+			application.NewService(container.GetMINIMTSService()),
+			application.NewService(container.GetHIKCameraService()),
+			application.NewService(container.GetProjectService()),
+			application.NewService(container.GetSystemService()),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -51,41 +47,19 @@ func main() {
 		},
 	})
 
-	minimtsService.SetApp(app)
-
-	//默认打开登录窗口
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title: "Login",
-		// Width:     650, // 设置窗口宽度
-		// Height:    450, // 设置窗口高度
-		Frameless: true,
-		Mac: application.MacWindow{
-			InvisibleTitleBarHeight: 50,
-			Backdrop:                application.MacBackdropTranslucent,
-			TitleBar:                application.MacTitleBarHiddenInset,
-		},
-		BackgroundColour: application.NewRGB(27, 38, 54),
-		URL:              "/",
-	})
-
-	//检查更新
-	_, err := updateService.GetUpdateInfo()
-	if err == nil {
-
-		app.Window.NewWithOptions(application.WebviewWindowOptions{
-			Title: "更新可用",
-			// 控制窗口大小
-			Width:            550,  // 设置窗口宽度
-			Height:           300,  // 设置窗口高度
-			DisableResize:    true, // 禁止用户拖拽改变窗口大小 (推荐弹窗使用)
-			AlwaysOnTop:      true, // 可选：让更新弹窗保持在最顶层
-			Frameless:        true,
-			BackgroundColour: application.NewRGB(27, 38, 54),
-			URL:              "/#/update",
-		})
-	} else {
-		fmt.Println("No update available:", err)
+	if err := container.InitAll(); err != nil {
+		fmt.Println("初始化服务失败:", err)
+		return
 	}
+
+	//先检查更新
+	_, err := container.GetUpdateService().GetUpdateInfo()
+	if err == nil {
+		container.GetAppService().CallUpdateWindow()
+	}
+
+	//打开登录窗口
+	container.GetAppService().CallLoginWindow()
 
 	stopCh := make(chan struct{})
 	go func() {
@@ -104,17 +78,12 @@ func main() {
 
 	err = app.Run()
 
-	minimtsService.CleanupHardware()
-	minimtsService.Stop()
-	cameraService.Stop()
+	container.GetMINIMTSService().CleanupHardware()
+	container.GetMINIMTSService().Stop()
+	container.GetHIKCameraService().Stop()
 	close(stopCh)
 
 	if err != nil {
 		log.Fatal(err)
 	}
 }
-
-// $env:CGO_ENABLED="1"
-// npm.cmd install vue-router
-// npm.cmd install echarts
-// $env:PATH = "C:\opencv\build\install\x64\mingw\bin;" + $env:PATH; wails3 dev

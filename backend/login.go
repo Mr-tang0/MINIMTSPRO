@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 type User struct {
@@ -35,7 +33,7 @@ type LastLoginInfo struct {
 }
 
 type LoginService struct {
-	user *User
+	container *ServiceContainer
 }
 
 type authResponse struct {
@@ -48,60 +46,87 @@ type authResponse struct {
 	User    json.RawMessage `json:"user"`
 }
 
-func NewLoginService(user *User) *LoginService {
-	return &LoginService{
-		user: user,
-	}
+func NewLoginService() *LoginService {
+	return &LoginService{}
+}
+
+func (l *LoginService) Init(container *ServiceContainer) error {
+	l.container = container
+	return nil
 }
 
 func (l *LoginService) Login(name string, password string) User {
-	if name == "__last_login__" {
-		info, err := l.GetLastLoginInfo()
-		if err != nil {
-			return User{AppJson: map[string]interface{}{"error": err.Error()}}
-		}
-		return User{ID: info.ID, Username: info.Username, Email: info.Email, Role: info.Role, RegisteredAt: info.LoginTime}
+	switch {
+	case name == "__last_login__":
+		return l.handleLastLogin()
+	case strings.HasPrefix(name, "__register__:"):
+		return l.handleRegister(name, password)
+	case l.isDebugAdmin(name, password):
+		return l.createDebugAdmin()
+	default:
+		return l.handleNormalLogin(name, password)
 	}
+}
 
-	if strings.HasPrefix(name, "__register__:") {
-		if len(password) < 6 {
-			return User{AppJson: map[string]interface{}{"error": "密码长度不能少于6位"}}
-		}
-		var form struct {
-			Username string `json:"username"`
-			Email    string `json:"email"`
-		}
-		if err := json.Unmarshal([]byte(strings.TrimPrefix(name, "__register__:")), &form); err != nil {
-			return User{AppJson: map[string]interface{}{"error": "注册信息解析失败"}}
-		}
-		user, err := l.Register(form.Username, form.Email, password)
-		if err != nil {
-			return User{AppJson: map[string]interface{}{"error": err.Error()}}
-		}
-		return user
+func (l *LoginService) handleLastLogin() User {
+	info, err := l.GetLastLoginInfo()
+	if err != nil {
+		return l.errorUser(err.Error())
 	}
+	return User{
+		ID:           info.ID,
+		Username:     info.Username,
+		Email:        info.Email,
+		Role:         info.Role,
+		RegisteredAt: info.LoginTime,
+	}
+}
 
-	if strings.TrimSpace(name) == "admin" && password == "admin" {
-		user := User{
-			ID:       "debug-admin",
-			Username: "admin",
-			Role:     "admin",
-		}
-		l.user = &user
-		_ = l.saveLastLoginInfo(user)
-		return user
-	}
-
-	if strings.TrimSpace(name) == "" || strings.TrimSpace(password) == "" {
-		return User{AppJson: map[string]interface{}{"error": "请填写完整的登录信息"}}
-	}
+func (l *LoginService) handleRegister(name string, password string) User {
 	if len(password) < 6 {
-		return User{AppJson: map[string]interface{}{"error": "密码长度不能少于6位"}}
+		return l.errorUser("密码长度不能少于6位")
+	}
+
+	var form struct {
+		Username string `json:"username"`
+		Email    string `json:"email"`
+	}
+
+	payload := strings.TrimPrefix(name, "__register__:")
+	if err := json.Unmarshal([]byte(payload), &form); err != nil {
+		return l.errorUser("注册信息解析失败")
+	}
+
+	user, err := l.Register(form.Username, form.Email, password)
+	if err != nil {
+		return l.errorUser(err.Error())
+	}
+	return user
+}
+
+func (l *LoginService) isDebugAdmin(name, password string) bool {
+	return strings.TrimSpace(name) == "admin" && password == "admin"
+}
+
+func (l *LoginService) createDebugAdmin() User {
+	user := User{
+		ID:       "debug-admin",
+		Username: "admin",
+		Role:     "admin",
+	}
+	l.container.SetUser(&user)
+	_ = l.saveLastLoginInfo(user)
+	return user
+}
+
+func (l *LoginService) handleNormalLogin(name string, password string) User {
+	if err := l.validateLoginInput(name, password); err != nil {
+		return l.errorUser(err.Error())
 	}
 
 	api, err := l.getAPIFromEnv("LOGIN_API", "LOGIN_URL", "VITE_LOGIN_API", "APP_LOGIN_API")
 	if err != nil {
-		return User{AppJson: map[string]interface{}{"error": err.Error()}}
+		return l.errorUser(err.Error())
 	}
 
 	user, err := l.requestAuth(api, map[string]string{
@@ -109,31 +134,57 @@ func (l *LoginService) Login(name string, password string) User {
 		"password": password,
 	})
 	if err != nil {
-		return User{AppJson: map[string]interface{}{"error": err.Error()}}
+		return l.errorUser(err.Error())
 	}
+
 	if user.Username == "" {
 		user.Username = name
 	}
 
-	// 权限检查：用户必须拥有 APP_NAME 对应的权限
-	appName := l.readEnvValue("APP_NAME")
-	if appName != "" {
-		hasPermission := false
-		for _, p := range user.AppPermissions {
-			if p == appName {
-				hasPermission = true
-				break
-			}
-		}
-		if !hasPermission {
-			return User{AppJson: map[string]interface{}{"error": "无权限访问本应用"}}
-		}
+	if !l.hasAppPermission(user) {
+		return l.errorUser("无权限访问本应用")
 	}
 
+	return l.completeLogin(&user)
+}
+
+func (l *LoginService) validateLoginInput(name, password string) error {
+	if strings.TrimSpace(name) == "" || strings.TrimSpace(password) == "" {
+		return fmt.Errorf("请填写完整的登录信息")
+	}
+	if len(password) < 6 {
+		return fmt.Errorf("密码长度不能少于6位")
+	}
+	return nil
+}
+
+func (l *LoginService) hasAppPermission(user User) bool {
+	if user.Role == "admin" {
+		return true
+	}
+
+	appName := l.readEnvValue("APP_NAME")
+	if appName == "" {
+		return true
+	}
+
+	for _, p := range user.AppPermissions {
+		if p == appName {
+			return true
+		}
+	}
+	return false
+}
+
+func (l *LoginService) completeLogin(user *User) User {
 	user.Password = ""
-	l.user = &user
-	_ = l.saveLastLoginInfo(user)
-	return user
+	l.container.SetUser(user)
+	_ = l.saveLastLoginInfo(*user)
+	return *user
+}
+
+func (l *LoginService) errorUser(msg string) User {
+	return User{AppJson: map[string]interface{}{"error": msg}}
 }
 
 func (l *LoginService) Register(name string, email string, password string) (User, error) {
@@ -150,12 +201,14 @@ func (l *LoginService) Register(name string, email string, password string) (Use
 	}
 
 	payload := map[string]interface{}{
-		"username":        name,
-		"password":        password,
-		"email":           email,
-		"registered_at":   time.Now().Format(time.RFC3339),
-		"role":            "普通用户",
-		"app_permissions": []string{},
+		"username":      name,
+		"password":      password,
+		"email":         email,
+		"registered_at": time.Now().Format(time.RFC3339),
+		"role":          "admin",
+		"app_permissions": []string{
+			"*",
+		},
 	}
 
 	user, err := l.requestAuthWithPayload(api, payload)
@@ -194,8 +247,15 @@ func (l *LoginService) GetLastLoginInfo() (LastLoginInfo, error) {
 	return info, nil
 }
 
-func (l *LoginService) requestAuth(api string, payload map[string]string) (User, error) {
+func (l *LoginService) GetLoginUser() User {
+	user := l.container.GetUser()
+	if user == nil {
+		return User{}
+	}
+	return *user
+}
 
+func (l *LoginService) requestAuth(api string, payload map[string]string) (User, error) {
 	return l.requestAuthWithPayload(api, payload)
 }
 
@@ -359,48 +419,4 @@ func (l *LoginService) saveLastLoginInfo(user User) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0644)
-}
-
-// 唤起MINIMTS窗口
-func (l *LoginService) CallMINIMTSWindow() error {
-	fmt.Println("CallMINIMTSWindow")
-	app := application.Get()
-	if app == nil {
-		return fmt.Errorf("application not initialized")
-	}
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:  "MINIMTS",
-		Width:  1200, // 设置窗口宽度
-		Height: 900,  // 设置窗口高度
-		// Frameless: true,
-		Mac: application.MacWindow{
-			InvisibleTitleBarHeight: 50,
-			Backdrop:                application.MacBackdropTranslucent,
-			TitleBar:                application.MacTitleBarHiddenInset,
-		},
-		BackgroundColour: application.NewRGB(27, 38, 54),
-		URL:              "/#/mts",
-	})
-	return nil
-}
-
-func (l *LoginService) CallVideoExtensometerWindow() error {
-	app := application.Get()
-	if app == nil {
-		return fmt.Errorf("application not initialized")
-	}
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:  "视频引伸计",
-		Width:  1200, // 设置窗口宽度
-		Height: 900,  // 设置窗口高度
-		// Frameless: true,
-		Mac: application.MacWindow{
-			InvisibleTitleBarHeight: 50,
-			Backdrop:                application.MacBackdropTranslucent,
-			TitleBar:                application.MacTitleBarHiddenInset,
-		},
-		BackgroundColour: application.NewRGB(27, 38, 54),
-		URL:              "/#/extensometer",
-	})
-	return nil
 }

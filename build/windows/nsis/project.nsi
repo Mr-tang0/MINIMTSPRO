@@ -84,28 +84,56 @@ Function .onInit
    !insertmacro wails.checkArchitecture
 FunctionEnd
 
+; ============================================
+; Install Section
+; ============================================
 Section
     !insertmacro wails.setShellContext
 
     !insertmacro wails.webview2runtime
 
+    ; DPInst requires the INF, catalog, and architecture-specific files next
+    ; to the installer executable, so stage the x64 driver package.
+    InitPluginsDir
+    SetOutPath "$PLUGINSDIR\CP210x_VCP_Windows"
+    File "..\..\..\docs\CP210x_VCP_Windows\CP210xVCPInstaller_x64.exe"
+    File "..\..\..\docs\CP210x_VCP_Windows\dpinst.xml"
+    File "..\..\..\docs\CP210x_VCP_Windows\slabvcp.cat"
+    File "..\..\..\docs\CP210x_VCP_Windows\slabvcp.inf"
+    SetOutPath "$PLUGINSDIR\CP210x_VCP_Windows\x64"
+    File "..\..\..\docs\CP210x_VCP_Windows\x64\silabenm.sys"
+    File "..\..\..\docs\CP210x_VCP_Windows\x64\silabser.sys"
+    File "..\..\..\docs\CP210x_VCP_Windows\x64\WdfCoInstaller01009.dll"
+    ExecWait '"$PLUGINSDIR\CP210x_VCP_Windows\CP210xVCPInstaller_x64.exe" /S /SE' $0
+    DetailPrint "CP210x driver installer exited with code $0"
+
     SetOutPath $INSTDIR
 
-    ; Keep the Wails executable private to the launcher while retaining Wails'
-    ; architecture-specific payload selection.
-    !undef PRODUCT_EXECUTABLE
-    !define PRODUCT_EXECUTABLE "minimtspro-core.exe"
     !insertmacro wails.files
-    !undef PRODUCT_EXECUTABLE
-    !define PRODUCT_EXECUTABLE "minimtspro.exe"
-    File "..\..\..\bin\minimtspro.exe"
 
     File "..\..\..\update.json"
     File "..\..\..\.env"
-    File "..\..\..\backend\hik\MvCameraControl.dll"
-    SetOutPath "$INSTDIR\opencv"
-    File "..\..\..\third_party\opencv\bin\*.dll"
-    SetOutPath "$INSTDIR"
+
+    SetOutPath "$INSTDIR\bin"
+    File "C:\msys64\ucrt64\bin\*.dll"
+    File "C:\opencv\build\bin\*.dll"
+
+    ; Install the MVS Runtime once per installed application lifecycle.
+    ReadRegStr $1 HKLM "Software\PIMS\MINIMTSPRO" "MVSRuntimeV4_8_0_3Installed"
+    StrCmp $1 "1" mvsRuntimeDone
+    SetOutPath "$PLUGINSDIR\MVS"
+    File "..\..\..\docs\MVS_SDK_V4_8_0_3_MVFG_V2_8_0_3_VC90_Runtime_STD.exe"
+    ExecWait '"$PLUGINSDIR\MVS\MVS_SDK_V4_8_0_3_MVFG_V2_8_0_3_VC90_Runtime_STD.exe"' $1
+    StrCmp $1 0 mvsRuntimeMarkInstalled
+    StrCmp $1 3010 mvsRuntimeMarkInstalled
+    DetailPrint "MVS Runtime installer exited with code $1"
+    Goto mvsRuntimeDone
+
+    mvsRuntimeMarkInstalled:
+    WriteRegStr HKLM "Software\PIMS\MINIMTSPRO" "MVSRuntimeV4_8_0_3Installed" "1"
+    DetailPrint "MVS Runtime installed"
+
+    mvsRuntimeDone:
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
@@ -114,10 +142,27 @@ Section
     !insertmacro wails.associateCustomProtocols
 
     !insertmacro wails.writeUninstaller
+
+    ReadRegStr $0 HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "MINIMTSPRO64"
+    StrCmp $0 "C:\Program Files (x86)\Common Files\MVS\Runtime\Win64_x64" pathConfigured
+    ReadRegStr $0 HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "Path"
+    StrCpy $0 "$0;$INSTDIR\bin;C:\Program Files (x86)\Common Files\MVS\Runtime\Win32_i86;C:\Program Files (x86)\Common Files\MVS\Runtime\Win64_x64"
+    WriteRegExpandStr HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "Path" $0
+
+    pathConfigured:
+    WriteRegExpandStr HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "MINIMTSPRO32" "C:\Program Files (x86)\Common Files\MVS\Runtime\Win32_i86"
+    WriteRegExpandStr HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "MINIMTSPRO64" "C:\Program Files (x86)\Common Files\MVS\Runtime\Win64_x64"
+    SendMessage ${HWND_BROADCAST} ${WM_WININICHANGE} 0 "STR:Environment" /TIMEOUT=5000
 SectionEnd
 
+
+; ============================================
+; Uninstall Section
+; ============================================
 Section "uninstall"
     !insertmacro wails.setShellContext
+
+    Call un.removeBinFromPath
 
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
 
@@ -130,4 +175,25 @@ Section "uninstall"
     !insertmacro wails.unassociateCustomProtocols
 
     !insertmacro wails.deleteUninstaller
+
+    DeleteRegValue HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "MINIMTSPRO32"
+    DeleteRegValue HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "MINIMTSPRO64"
+    DeleteRegValue HKLM "Software\PIMS\MINIMTSPRO" "MVSRuntimeV4_8_0_3Installed"
+    DeleteRegKey HKLM "Software\PIMS\MINIMTSPRO"
+    SendMessage ${HWND_BROADCAST} ${WM_WININICHANGE} 0 "STR:Environment" /TIMEOUT=5000
 SectionEnd
+
+Function un.removeBinFromPath
+    InitPluginsDir
+    FileOpen $0 "$PLUGINSDIR\remove-minimtspro-bin.ps1" w
+    FileWrite $0 "param([string]$$Target)$\r$\n"
+    FileWrite $0 "$$key = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'$\r$\n"
+    FileWrite $0 "$$current = (Get-ItemProperty -LiteralPath $$key -Name Path).Path$\r$\n"
+    FileWrite $0 "$$items = @($$current -split ';' | Where-Object { $$_ -and $$_ -ine $$Target })$\r$\n"
+    FileWrite $0 "Set-ItemProperty -LiteralPath $$key -Name Path -Value ($$items -join ';') -Type ExpandString$\r$\n"
+    FileClose $0
+
+    nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\remove-minimtspro-bin.ps1" -Target "$INSTDIR\bin"'
+    Pop $0
+    DetailPrint "Removed $INSTDIR\bin from system PATH (exit code $0)"
+FunctionEnd

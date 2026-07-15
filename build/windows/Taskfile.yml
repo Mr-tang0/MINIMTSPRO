@@ -64,36 +64,6 @@ tasks:
       CGO_ENABLED: '{{.CGO_ENABLED | default "1"}}'
       GOARCH: '{{.ARCH | default ARCH}}'
 
-  build:launcher:
-    summary: Builds the Windows OpenCV runtime launcher
-    internal: true
-    dir: '{{.ROOT_DIR}}/launcher'
-    cmds:
-      - go build -o '{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}.exe' .
-    env:
-      GOOS: windows
-      GOARCH: '{{.ARCH | default ARCH}}'
-
-  prepare:nsis:payload:
-    summary: Builds the Wails core and its launcher for NSIS packaging
-    internal: true
-    cmds:
-      - task: build
-        vars:
-          ARCH: '{{.ARCH}}'
-          DEV: '{{.DEV}}'
-          EXTRA_TAGS: '{{.EXTRA_TAGS}}'
-          OBFUSCATED: '{{.OBFUSCATED}}'
-          GARBLE_ARGS: '{{.GARBLE_ARGS}}'
-          CGO_ENABLED: '{{.CGO_ENABLED}}'
-      - cmd: Copy-Item -Force '{{.ROOT_DIR}}\{{.BIN_DIR}}\{{.APP_NAME}}.exe' '{{.ROOT_DIR}}\{{.BIN_DIR}}\{{.APP_NAME}}-core.exe'
-        platforms: [windows]
-      - cmd: cp -f '{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}.exe' '{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}-core.exe'
-        platforms: [linux, darwin]
-      - task: build:launcher
-        vars:
-          ARCH: '{{.ARCH}}'
-
   build:docker:
     summary: Cross-compiles for Windows using Docker with Zig (for CGO builds on non-Windows)
     internal: true
@@ -147,7 +117,7 @@ tasks:
     summary: Creates an NSIS installer
     dir: build/windows/nsis
     deps:
-      - task: prepare:nsis:payload
+      - task: build
     preconditions:
       - sh: '[ "{{.INSTALL_SCOPE}}" = "user" ] || [ "{{.INSTALL_SCOPE}}" = "machine" ]'
         msg: "INSTALL_SCOPE must be 'user' or 'machine', got '{{.INSTALL_SCOPE}}'"
@@ -156,9 +126,9 @@ tasks:
       - wails3 generate webview2bootstrapper -dir "{{.ROOT_DIR}}/build/windows/nsis"
       - |
         {{if eq OS "windows"}}
-        makensis {{if eq .INSTALL_SCOPE "user"}}-DWAILS_INSTALL_SCOPE=user -DREQUEST_EXECUTION_LEVEL=user {{end}}-DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}\{{.BIN_DIR}}\{{.APP_NAME}}-core.exe" project.nsi
+        makensis {{if eq .INSTALL_SCOPE "user"}}-DWAILS_INSTALL_SCOPE=user -DREQUEST_EXECUTION_LEVEL=user {{end}}-DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}\{{.BIN_DIR}}\{{.APP_NAME}}.exe" project.nsi
         {{else}}
-        makensis {{if eq .INSTALL_SCOPE "user"}}-DWAILS_INSTALL_SCOPE=user -DREQUEST_EXECUTION_LEVEL=user {{end}}-DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}-core.exe" project.nsi
+        makensis {{if eq .INSTALL_SCOPE "user"}}-DWAILS_INSTALL_SCOPE=user -DREQUEST_EXECUTION_LEVEL=user {{end}}-DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}.exe" project.nsi
         {{end}}
     vars:
       ARCH: '{{.ARCH | default ARCH}}'

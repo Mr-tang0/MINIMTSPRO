@@ -1,8 +1,8 @@
 package backend
 
 import (
-	"changeme/backend/extensometer"
-	"changeme/backend/hik"
+	"MINIMTSPRO/backend/extensometer"
+	"MINIMTSPRO/backend/hik"
 	"encoding/base64"
 	"fmt"
 	"image"
@@ -72,8 +72,7 @@ type HIKCameraService struct {
 	angleChangeDeg  float64 // 累计角度变化（度）
 	initialProjDist float64 // 方向线上A/B投影点的初始距离
 
-	// MINIMTSService 实例，用于推送视频引伸数据
-	minimtsSvc *MINIMTSService // 用于推送视频数据
+	container *ServiceContainer
 
 	previewMu       sync.Mutex
 	lastPreviewEmit time.Time
@@ -102,6 +101,11 @@ type HIKCameraService struct {
 
 	calibrationFlow      string //标定模式：相机标定："camera" 位姿标定："pose"
 	calibrationPatternMu sync.RWMutex
+}
+
+func (s *HIKCameraService) Init(container *ServiceContainer) error {
+	s.container = container
+	return nil
 }
 
 func NewHIKCamera() *HIKCameraService {
@@ -347,16 +351,13 @@ func (s *HIKCameraService) GetHIKCameraDevices() []string {
 	return devices
 }
 
-// SetMINIMTSService 设置MINIMTSService服务
-func (s *HIKCameraService) SetMINIMTSService(minimts *MINIMTSService) {
-	s.minimtsSvc = minimts
-}
-
 // OpenHIKCamera 打开 HIK 相机
 func (s *HIKCameraService) OpenHIKCamera(name string) error {
 	err := s.camera.OpenCamera(name)
-	if err == nil && s.minimtsSvc != nil {
-		s.minimtsSvc.setCameraConnected(true)
+	if err == nil {
+		if minimts := s.container.GetMINIMTSService(); minimts != nil {
+			minimts.setCameraConnected(true)
+		}
 	}
 	return err
 }
@@ -364,8 +365,8 @@ func (s *HIKCameraService) OpenHIKCamera(name string) error {
 // CloseHIKCamera 关闭 HIK 相机
 func (s *HIKCameraService) CloseHIKCamera() error {
 	err := s.camera.CloseCamera()
-	if s.minimtsSvc != nil {
-		s.minimtsSvc.setCameraConnected(false)
+	if minimts := s.container.GetMINIMTSService(); minimts != nil {
+		minimts.setCameraConnected(false)
 	}
 	return err
 }
@@ -774,19 +775,19 @@ func (s *HIKCameraService) adjustDirectionLine() {
 
 	// 计算当前投影距离并推送视频数据
 	currentProjDist := math.Sqrt((projBx-projAx)*(projBx-projAx) + (projBy-projAy)*(projBy-projAy))
-	if s.minimtsSvc != nil && s.initialProjDist > 0 {
-		videoDisp := currentProjDist - s.initialProjDist
-		videoStrain := videoDisp / s.initialProjDist
-		ratio := s.GetResolutionRatio()
-		if ratio > 0 {
-			videoDisp = videoDisp / ratio
-		}
-		//保留4位小数
-		videoDisp = math.Round(videoDisp*10000) / 10000
-		//保留5位小数
-		videoStrain = math.Round(videoStrain*1000000) / 100000
+	if s.initialProjDist > 0 {
+		if minimts := s.container.GetMINIMTSService(); minimts != nil {
+			videoDisp := currentProjDist - s.initialProjDist
+			videoStrain := videoDisp / s.initialProjDist
+			ratio := s.GetResolutionRatio()
+			if ratio > 0 {
+				videoDisp = videoDisp / ratio
+			}
+			videoDisp = math.Round(videoDisp*10000) / 10000
+			videoStrain = math.Round(videoStrain*1000000) / 100000
 
-		s.minimtsSvc.SetVideoData(videoDisp, videoStrain)
+			minimts.SetVideoData(videoDisp, videoStrain)
+		}
 	}
 }
 

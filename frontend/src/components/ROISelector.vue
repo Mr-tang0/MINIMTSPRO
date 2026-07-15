@@ -17,8 +17,8 @@
         @mouseup="handleMouseUp"
         @mouseleave="handleMouseUp"
       ></canvas>
-      <div v-if="loading" class="overlay-text">正在加载最新相机帧...</div>
-      <div v-else-if="!imageLoaded" class="overlay-text error">未获取到相机图像</div>
+      <div v-if="loading" class="overlay-text">正在识别最新相机帧...</div>
+      <div v-else-if="!imageLoaded" class="overlay-text error">识别失败，检查棋盘格图片是否正确</div>
     </main>
 
     <footer class="footer">
@@ -47,7 +47,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { Window } from '@wailsio/runtime'
-import { GetLatestFrameForROI, SetROI, SetDirectionLine, AddCalibrationCorners, AddPoseCalibration, FindChessboardCorners } from '../../bindings/changeme/backend/hikcameraservice'
+import * as HIKCameraService from '../../bindings/MINIMTSPRO/backend/hikcameraservice'
 import { Events } from '@wailsio/runtime'
 
 const route = useRoute()
@@ -396,7 +396,7 @@ const confirm = async () => {
     if (corners.value.length === 0) return
     try {
       console.log("corners:", corners.value)
-      await AddPoseCalibration(
+      await HIKCameraService.AddPoseCalibration(
         corners.value,
         calibrationRows.value,
         calibrationCols.value,
@@ -414,7 +414,7 @@ const confirm = async () => {
   if (isCornerCalibrationMode.value) {
     if (corners.value.length === 0) return
     try {
-      const result = await AddCalibrationCorners(
+      const result = await HIKCameraService.AddCalibrationCorners(
         corners.value,
         calibrationRows.value,
         calibrationCols.value,
@@ -442,7 +442,7 @@ const confirm = async () => {
   if (isLineMode.value || isCalibrationMode.value) {
     if (!line.value) return
     try {
-      await SetDirectionLine(line.value)
+      await HIKCameraService.SetDirectionLine(line.value)
       await Window.Close()
     } catch (err) {
       alert(`方向设置失败：${err}`)
@@ -450,7 +450,7 @@ const confirm = async () => {
   } else {
     if (!roi.value) return
     try {
-      await SetROI(label.value, roi.value)
+      await HIKCameraService.SetROI(label.value, roi.value)
       await Window.Close()
     } catch (err) {
       alert(`ROI 设置失败：${err}`)
@@ -476,7 +476,7 @@ onMounted(async () => {
         }
         img.src = decodeURIComponent(imageStr)
       } else {
-        const result = await FindChessboardCorners(calibrationRows.value, calibrationCols.value)
+        const result = await HIKCameraService.FindChessboardCorners(calibrationRows.value, calibrationCols.value)
         if (!result?.success) {
           loading.value = false
           return
@@ -493,7 +493,7 @@ onMounted(async () => {
         img.src = result.image
       }
     } else {
-      const frame = await GetLatestFrameForROI()
+      const frame = await HIKCameraService.GetLatestFrameForROI()
       img.onload = async () => {
         imgWidth = img.naturalWidth || frame.width
         imgHeight = img.naturalHeight || frame.height

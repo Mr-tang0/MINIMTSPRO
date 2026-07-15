@@ -50,15 +50,14 @@ type ProjectConfig struct {
 
 type ProjectService struct {
 	// ctx          context.Context
-	ActiveConfig  *ProjectConfig
-	user          *User
-	cameraService *HIKCameraService
+	ActiveConfig *ProjectConfig
+	container    *ServiceContainer
 }
 
-func NewProjectService(user *User) *ProjectService {
-	p := &ProjectService{
+func NewProjectService() *ProjectService {
+	return &ProjectService{
 		ActiveConfig: &ProjectConfig{
-			Experimenter:    user.Username,
+			Experimenter:    "",
 			SampleNo:        "Sample001",
 			TestDate:        time.Now().Format("2006-01-02 15:04:05"),
 			SampleShape:     "dogbone",
@@ -85,47 +84,49 @@ func NewProjectService(user *User) *ProjectService {
 			PhysLength:      10.0,
 			PoissonEnable:   false,
 		},
-		user: user,
 	}
-	return p
 }
 
-func (p *ProjectService) SetUser(user *User) {
-	p.user = user
-}
-
-func (p *ProjectService) SetHIKCameraService(camera *HIKCameraService) {
-	p.cameraService = camera
+func (p *ProjectService) Init(container *ServiceContainer) error {
+	p.container = container
+	if user := container.GetUser(); user != nil && p.ActiveConfig != nil {
+		p.ActiveConfig.Experimenter = user.Username
+	}
+	return nil
 }
 
 // LoadProjectConfigFromFile 给定路径读取历史项目信息
 func (p *ProjectService) LoadProjectConfigFromFile() (*ProjectConfig, error) {
-	fmt.Println("当前用户:", p.user.Username)
-	path, _ := os.UserHomeDir()
-	path = filepath.Join(path, "PIMS", "MINIMTS", "localuser", fmt.Sprintf("%s_%s", p.user.Username, p.user.ID), "config.json")
+	user := p.container.GetUser()
+	if user == nil {
+		return nil, fmt.Errorf("用户未登录")
+	}
+	fmt.Println("当前用户:", user.Username)
+	home_path, _ := os.UserHomeDir()
+	path := filepath.Join(home_path, "PIMS", "MINIMTS", "localuser", fmt.Sprintf("%s_%s", user.Username, user.ID), "config.json")
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		fmt.Printf("未找到历史项目配置文件: %s\n", path)
 		defaultConfig := ProjectConfig{
-			Experimenter:    p.user.Username,
+			Experimenter:    user.Username,
 			SampleNo:        "Sample001",
 			TestDate:        time.Now().Format("2006-01-02 15:04:05"),
 			SampleShape:     "dogbone",
-			Width:           10.0,
-			Thickness:       5.0,
-			Diameter:        0.0,
-			SectionLength:   50.0,
+			Width:           3.00,
+			Thickness:       1.50,
+			Diameter:        5.5,
+			SectionLength:   10.0,
 			Type:            "tension",
-			Speed:           1.0,
-			StopCondition:   "strain",
-			FilePath:        "",
+			Speed:           0.01,
+			StopCondition:   "manual",
+			FilePath:        filepath.Join(home_path, "Documents", user.Username),
 			FileName:        "test",
 			DicEnable:       false,
 			ExternalTrigger: false,
 			TriggerType:     "interval",
 			TriggerInterval: 1000,
 			PulseWidth:      100,
-			DicFolder:       "",
+			DicFolder:       filepath.Join(home_path, "Documents", user.Username),
 			DicFileName:     "dic",
 			VideoExtEnable:  false,
 			MarkerA:         "A",
@@ -163,15 +164,18 @@ func (p *ProjectService) LoadProjectConfigFromFile() (*ProjectConfig, error) {
 func (p *ProjectService) SaveProjectConfig(config ProjectConfig) error {
 	config.TestDate = time.Now().Format("2006-01-02 15:04:05")
 
-	// 从相机服务同步方向线段数据结构到配置
-	if p.cameraService != nil {
-		if line, ok := p.cameraService.GetDirectionLine(); ok {
+	if camera := p.container.GetHIKCameraService(); camera != nil {
+		if line, ok := camera.GetDirectionLine(); ok {
 			config.DirectionLineData = &line
 		}
 	}
 
+	user := p.container.GetUser()
+	if user == nil {
+		return fmt.Errorf("用户未登录")
+	}
 	fullPath, _ := os.UserHomeDir()
-	fullPath = filepath.Join(fullPath, "PIMS", "MINIMTS", "localuser", fmt.Sprintf("%s_%s", p.user.Username, p.user.ID), "config.json")
+	fullPath = filepath.Join(fullPath, "PIMS", "MINIMTS", "localuser", fmt.Sprintf("%s_%s", user.Username, user.ID), "config.json")
 
 	jsonData, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
@@ -194,14 +198,13 @@ func (p *ProjectService) GetActiveConfig() (*ProjectConfig, error) {
 		return config, err
 	}
 
-	// 加载后将方向线段数据恢复到相机服务
-	if p.cameraService != nil && config.DirectionLineData != nil {
-		p.cameraService.SetDirectionLineFromConfig(*config.DirectionLineData)
-	}
-
-	// 加载后恢复比例标定系数
-	if p.cameraService != nil && config.PixLength > 0 && config.PhysLength > 0 {
-		p.cameraService.SetResolutionRatio(config.PixLength, config.PhysLength)
+	if camera := p.container.GetHIKCameraService(); camera != nil {
+		if config.DirectionLineData != nil {
+			camera.SetDirectionLineFromConfig(*config.DirectionLineData)
+		}
+		if config.PixLength > 0 && config.PhysLength > 0 {
+			camera.SetResolutionRatio(config.PixLength, config.PhysLength)
+		}
 	}
 
 	return config, nil

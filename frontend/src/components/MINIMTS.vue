@@ -3,13 +3,25 @@
     <!-- 侧边导航栏 -->
     <aside class="sidebar">
       <div class="sidebar-top">
-        <div class="sidebar-header">
-          <div class="logo-icon">
-            <img src="../res/user.png" alt="Logo" />
+        <div
+          class="sidebar-header-area"
+          @mouseenter="isMessagePanelVisible = true"
+          @mouseleave="isMessagePanelVisible = false"
+          @focusin="isMessagePanelVisible = true"
+          @focusout="handleSidebarFocusout"
+        >
+          <button class="sidebar-header" type="button" aria-label="Open user profile" @click="ModalStatus.showUserModal = true">
+            <div class="logo-icon">
+              <img src="../res/user.png" alt="Logo" />
+            </div>
+            <span class="badge" :class="{ hidden: systemMessages.length === 0 }">
+              {{ systemMessages.length }}
+            </span>
+          </button>
+          <span class="logo-text">{{ currentUser.username || 'MTS' }}</span>
+          <div v-show="isMessagePanelVisible" class="message-popover">
+            <Message :messages="systemMessages" @clear="clearSystemMessages" />
           </div>
-          <div class="badge">1</div>
-          
-          <span class="logo-text">MTS</span>
         </div>
 
         <nav class="nav-icons">
@@ -36,7 +48,7 @@
             <span class="btn-tip">文件</span>
           </div>
           
-          <div v-if="SystemStatus.CameraOpened" class="icon-wrapper" @click="CallHIKCameraWindow">
+          <div v-if="SystemStatus.CameraOpened" class="icon-wrapper" @click="AppService.CallHIKCameraWindow">
             <i class="ri-camera-lens-line icon"></i>
             <span class="btn-tip">相机</span>
           </div>
@@ -44,7 +56,7 @@
       </div>
 
       <div class="sidebar-footer">
-        <div class="icon-wrapper">
+        <div class="icon-wrapper" @click="ModalStatus.showSystemWindow = true">
           <i class="ri-settings-4-line icon"></i>
           <span class="btn-tip">设置</span>
         </div>
@@ -60,13 +72,9 @@
           <!-- <p class="subtitle">材料试验机控制系统 · 精密测试环境</p> -->
         </div>
         <div class="global-status">
-          <div class="connection-badge" :class="{ connected: SystemStatus.MINIMTSOpened}">
+          <div class="connection-badge" :class="{ connected: connectionStatus.connected }">
             <span class="status-dot"></span>
-            <span>MINIMTS {{ SystemStatus.MINIMTSOpened?'已连接':'未连接' }}</span>
-          </div>
-          <div class="connection-badge camera" :class="{ connected: DataValues.cameraConnected}">
-            <span class="status-dot"></span>
-            <span>相机 {{ DataValues.cameraConnected?'已连接':'未连接' }}</span>
+            <span>{{ connectionStatus.text }}</span>
           </div>
         </div>
       </header>
@@ -244,14 +252,16 @@
             <div class="device-panel">
               <div class="panel-title">
                 <span><i class="ri-serial-port-line"></i> MINIMTS 控制器</span>
-                <button class="refresh-btn" @click="refreshMINIMTSDevices" :disabled="SystemStatus.MINIMTSRefreshing">
+              </div>
+              <div class="select-row">
+                <select v-model="SystemStatus.SelectedMINIMTS" class="device-select">
+                  <option value="">请选择串口</option>
+                  <option v-for="d in MINIMTSDevices" :key="d">{{ d }}</option>
+                </select>
+                <button class="refresh-btn" @click="refreshMINIMTSDevices" :disabled="SystemStatus.MINIMTSRefreshing" title="刷新串口列表">
                   <i class="ri-refresh-line" :class="{ spinning: SystemStatus.MINIMTSRefreshing }"></i>
                 </button>
               </div>
-              <select v-model="SystemStatus.SelectedMINIMTS" class="device-select">
-                <option value="">请选择串口</option>
-                <option v-for="d in MINIMTSDevices" :key="d">{{ d }}</option>
-              </select>
               <button 
                 class="connect-btn" 
                 :class="{ connected: SystemStatus.MINIMTSOpened }"
@@ -265,14 +275,16 @@
             <div class="device-panel">
               <div class="panel-title">
                 <span><i class="ri-camera-line"></i> 视频引伸计</span>
-                <button class="refresh-btn" @click="refreshCameraDevices" :disabled="SystemStatus.CameraRefreshing">
+              </div>
+              <div class="select-row">
+                <select v-model="SystemStatus.SelectedCamera" class="device-select">
+                  <option value="">请选择相机</option>
+                  <option v-for="d in CameraDevices" :key="d">{{ d }}</option>
+                </select>
+                <button class="refresh-btn" @click="refreshCameraDevices" :disabled="SystemStatus.CameraRefreshing" title="刷新相机列表">
                   <i class="ri-refresh-line" :class="{ spinning: SystemStatus.CameraRefreshing }"></i>
                 </button>
               </div>
-              <select v-model="SystemStatus.SelectedCamera" class="device-select">
-                <option value="">请选择相机</option>
-                <option v-for="d in CameraDevices" :key="d">{{ d }}</option>
-              </select>
               <button 
                 class="connect-btn" 
                 :class="{ connected: SystemStatus.CameraOpened }"
@@ -289,7 +301,7 @@
 
     <!-- 项目设置模态框 -->
     <Teleport to="body">
-      <div v-if="ModalStatus.showProjectWindow" class="modal-overlay">
+      <div v-if="ModalStatus.showProjectWindow" class="modal-overlay" @click.self="ModalStatus.showProjectWindow = false">
         <div class="modal-container project-modal">
           <div class="modal-header">
             <h2>新建试验项目</h2>
@@ -308,34 +320,50 @@
       </div>
     </Teleport>
 
+    <!-- 系统设置模态框 -->
+    <Teleport to="body">
+      <div v-if="ModalStatus.showSystemWindow" class="modal-overlay" @click.self="ModalStatus.showSystemWindow = false">
+        <div class="modal-container system-modal">
+          <div class="modal-header">
+            <h2><i class="ri-settings-3-line"></i> 系统设置</h2>
+            <button class="close-btn" @click="ModalStatus.showSystemWindow = false">
+              <i class="ri-close-line"></i>
+            </button>
+          </div>
+          <div class="modal-body system-modal-body">
+            <System 
+              :embedded="true"
+              @close="ModalStatus.showSystemWindow = false"
+              @saved="ModalStatus.showSystemWindow = false"
+            />
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <User
+      v-if="ModalStatus.showUserModal"
+      :user="currentUser"
+      @close="ModalStatus.showUserModal = false"
+      @logout="handleLogout"
+    />
+
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted } from 'vue';
-import { Events } from '@wailsio/runtime';
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
+import { Events, Window } from '@wailsio/runtime';
 import * as echarts from 'echarts';
 import MetricCard from './MetricCard.vue';
 import Project from './Project.vue';
-import { 
-  CallHIKCameraWindow,
-  CloseHIKCameraWindow,
-  GetMINIMTSDevices,
-  OpenMINIMTS,
-  CloseMINIMTS,
-  JogMove,
-  ClearDataCache,
-  StartMeasurement,
-  StopMeasurement,
-  CallDataToZero,
-  SaveDataTCsv,
-} from "../../bindings/changeme/backend/minimtsservice";
-
-import { 
-  GetHIKCameraDevices,
-  OpenHIKCamera,
-  CloseHIKCamera,
-} from "../../bindings/changeme/backend/hikcameraservice";
+import System from './System.vue';
+import Message from './Message.vue';
+import User from './User.vue';
+import * as AppService from "../../bindings/MINIMTSPRO/backend/appservice";
+import * as MINIMTSService from "../../bindings/MINIMTSPRO/backend/minimtsservice";
+import * as HIKCameraService from "../../bindings/MINIMTSPRO/backend/hikcameraservice";
+import * as LoginService from "../../bindings/MINIMTSPRO/backend/loginservice";
 
 
 // 系统状态
@@ -352,12 +380,98 @@ const SystemStatus = reactive({
 const MINIMTSDevices = ref([]);
 const CameraDevices = ref([]);
 
+// 连接状态综合显示
+const connectionStatus = computed(() => {
+  const mtsConnected = SystemStatus.MINIMTSOpened;
+  const cameraConnected = DataValues.cameraConnected;
+  if (mtsConnected && cameraConnected) {
+    return { text: '设备已连接', connected: true };
+  }
+  if (mtsConnected) {
+    return { text: 'MINIMTS已连接', connected: true };
+  }
+  if (cameraConnected) {
+    return { text: 'Camera已连接', connected: true };
+  }
+  return { text: '设备未连接', connected: false };
+});
+
 // 模态框状态
 const ModalStatus = reactive({
   showConnectModal: true, //打开软件时候，显示连接窗口
   showProjectWindow: false,
   showSystemWindow: false,
+  showUserModal: false,
 });
+
+const currentUser = reactive({
+  username: '',
+  id: '',
+  email: '',
+  role: '',
+  registered_at: '',
+  login_time: '',
+});
+
+const isMounted = ref(false);
+const systemMessages = ref([]);
+const isMessagePanelVisible = ref(false);
+let nextMessageId = 1;
+let timeInterval = null;
+let resizeHandler = null;
+let offSystemMessage = null;
+let offUpdateStatus = null;
+
+const clearSystemMessages = () => {
+  systemMessages.value = [];
+};
+
+const getMessageText = (payload) => {
+  if (typeof payload === 'string') return payload.trim();
+  if (!payload || typeof payload !== 'object') return '';
+  return String(payload.message ?? payload.text ?? payload.error ?? '').trim();
+};
+
+const handleSystemMessage = (payload) => {
+  console.log("Received system message:", payload);
+  const messagePayload = payload && typeof payload === 'object' && 'data' in payload
+    ? payload.data
+    : payload;
+  const text = getMessageText(messagePayload);
+  if (!text) return;
+  systemMessages.value.push({
+    id: `system-message-${nextMessageId++}`,
+    text,
+    time: new Date().toISOString(),
+  });
+};
+
+const handleSidebarFocusout = (event) => {
+  if (!event.currentTarget.contains(event.relatedTarget)) {
+    isMessagePanelVisible.value = false;
+  }
+};
+
+const handleLogout = async () => {
+  try {
+    // 断开已连接的设备
+    if (SystemStatus.MINIMTSOpened) {
+      await MINIMTSService.CloseMINIMTS();
+      SystemStatus.MINIMTSOpened = false;
+    }
+    if (SystemStatus.CameraOpened) {
+      await HIKCameraService.CloseHIKCamera();
+      await AppService.CloseHIKCameraWindow();
+      SystemStatus.CameraOpened = false;
+    }
+    // 打开登录窗口并关闭当前窗口
+    await AppService.CallLoginWindow();
+    Window.Close();
+  } catch (error) {
+    console.error('Logout window transition failed:', error);
+    window.close();
+  }
+};
 
 // 数据值
 const DataValues = reactive({
@@ -407,7 +521,7 @@ const isTesting = ref(false);
 const refreshMINIMTSDevices = async() => {
   try {
     SystemStatus.MINIMTSRefreshing = true;
-    const devices = await GetMINIMTSDevices();
+    const devices = await MINIMTSService.GetMINIMTSDevices();
     MINIMTSDevices.value = devices;
     if(!SystemStatus.MINIMTSOpened && devices.length > 0) {
       SystemStatus.SelectedMINIMTS = devices[devices.length - 1];
@@ -421,7 +535,7 @@ const refreshMINIMTSDevices = async() => {
 
 const refreshCameraDevices = async () => {
   try { 
-    const devices = await GetHIKCameraDevices();
+    const devices = await HIKCameraService.GetHIKCameraDevices();
     CameraDevices.value = devices;
     if(!SystemStatus.CameraOpened && devices.length > 0) {
       SystemStatus.SelectedCamera = devices[devices.length - 1];
@@ -438,14 +552,14 @@ const refreshCameraDevices = async () => {
 const handleMINIMTSConnect = async () => { 
   if (SystemStatus.MINIMTSOpened) {
     try { 
-      await CloseMINIMTS();
+      await MINIMTSService.CloseMINIMTS();
       SystemStatus.MINIMTSOpened = false;
     } catch (error) {
       alert(error.message);
     }
   } else {
     try { 
-      await OpenMINIMTS(SystemStatus.SelectedMINIMTS);
+      await MINIMTSService.OpenMINIMTS(SystemStatus.SelectedMINIMTS);
       SystemStatus.MINIMTSOpened = true;
     } catch (error) {
       alert(error.message);
@@ -456,16 +570,16 @@ const handleMINIMTSConnect = async () => {
 const handleCameraConnect = async () => { 
   if (SystemStatus.CameraOpened) {
     try { 
-      await CloseHIKCamera();
-      await CloseHIKCameraWindow();
+      await HIKCameraService.CloseHIKCamera();
+      await AppService.CloseHIKCameraWindow();
       SystemStatus.CameraOpened = false;
     } catch (error) {
       alert(error.message);
     }
   } else {
     try { 
-      await OpenHIKCamera(SystemStatus.SelectedCamera);
-      await CallHIKCameraWindow();
+      await HIKCameraService.OpenHIKCamera(SystemStatus.SelectedCamera);
+      await AppService.CallHIKCameraWindow();
       SystemStatus.CameraOpened = true;
     } catch (error) {
       alert(error.message);
@@ -475,7 +589,7 @@ const handleCameraConnect = async () => {
 
 const jog = async(speed) => { 
   try { 
-    await JogMove(speed);
+    await MINIMTSService.JogMove(speed);
   } catch (error) {
     alert(error.message);
   }
@@ -484,7 +598,7 @@ const jog = async(speed) => {
 // 卡片双击事件
 const handleCardDoubleClick = async (key) => {
   try {
-    await CallDataToZero(key);
+    await MINIMTSService.CallDataToZero(key);
   } catch (error) {
     alert(error.message);
   }
@@ -692,7 +806,7 @@ const refreshChartUI = () => {
 
 // 清除图表数据
 const ClearCharts = async () => {
-  await ClearDataCache();
+  await MINIMTSService.ClearDataCache();
   Object.keys(DataSerials).forEach(k => DataSerials[k] = []);
   refreshChartUI();
 };
@@ -707,7 +821,7 @@ const handleProjectSubmit = (form) => {
 // 保存数据
 const saveData = async () => {
   try {
-    await SaveDataTCsv();
+    await MINIMTSService.SaveDataTCsv();
   } catch (error) {
     console.error('保存数据失败:', error);
   }
@@ -723,7 +837,7 @@ const resetDisp = () => {
 const toggleTest = async () => { 
   if (isTesting.value) {
     try {
-      await StopMeasurement();
+      await MINIMTSService.StopMeasurement();
       isTesting.value = false;
     } catch (error) {
       console.error('停止测量失败:', error);
@@ -731,7 +845,7 @@ const toggleTest = async () => {
 
   }else {
     try {
-      await StartMeasurement();
+      await MINIMTSService.StartMeasurement();
       isTesting.value = true;
     } catch (error) {
       console.error('启动测量失败:', error);
@@ -744,6 +858,24 @@ const emergencyStop = () => {
 };
 
 onMounted(async () => {
+  isMounted.value = true;
+  try {
+    const info = await LoginService.Login('__last_login__', '000000');
+    if (!isMounted.value) return;
+    Object.assign(currentUser, {
+      username: info?.username || '',
+      id: info?.id || '',
+      email: info?.email || '',
+      role: info?.role || '',
+      registered_at: info?.registered_at && info?.login_time ? info.registered_at : '',
+      login_time: info?.login_time || info?.registered_at || '',
+    });
+  } catch (error) {
+    if (!isMounted.value) return;
+    console.error('Failed to load last login:', error);
+  }
+  if (!isMounted.value) return;
+
   initChart();
   refreshMINIMTSDevices();
   refreshCameraDevices();
@@ -752,11 +884,12 @@ onMounted(async () => {
   // 初始化北京时间
   updateBeijingTime();
   // 每秒更新北京时间
-  const timeInterval = setInterval(updateBeijingTime, 1000);
+  timeInterval = setInterval(updateBeijingTime, 1000);
   
-  window.addEventListener('resize', () => myChart?.resize());
+  resizeHandler = () => myChart?.resize();
+  window.addEventListener('resize', resizeHandler);
 
-  Events.On('update_status', (status) => {
+  offUpdateStatus = Events.On('update_status', (status) => {
     const data = status.data;
     
     if (data.load !== undefined) DataValues.load = data.load;
@@ -780,16 +913,25 @@ onMounted(async () => {
     refreshChartUI();
   });
 
+  offSystemMessage = Events.On('system_message', handleSystemMessage);
+  
+
+
 });
 
 onUnmounted(() => {
+  isMounted.value = false;
+  if (typeof offSystemMessage === 'function') offSystemMessage();
+  if (typeof offUpdateStatus === 'function') offUpdateStatus();
+  if (resizeHandler) window.removeEventListener('resize', resizeHandler);
+  if (timeInterval) clearInterval(timeInterval);
   if (myChart) myChart.dispose();
-  clearInterval(timeInterval);
+  myChart = null;
 });
 </script>
 
 <style scoped>
-@import url('https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css');
+@import 'remixicon/fonts/remixicon.css';
 
 .dashboard {
   --bg-main: #1e293b;
@@ -840,8 +982,29 @@ onUnmounted(() => {
   position: relative;
   width: 52px;
   height: 52px;
+  display: block;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
   cursor: pointer;
-  margin-bottom: 30px;
+  margin-bottom: 8px;
+}
+
+.sidebar-header-area {
+  position: relative;
+  z-index: 20;
+  margin-bottom: 16px;
+}
+
+.sidebar-header:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 4px;
+}
+
+.sidebar-header:hover .logo-icon,
+.sidebar-header:focus-visible .logo-icon {
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.35), 0 4px 10px rgba(59,130,246,0.3);
 }
 
 .logo-icon {
@@ -863,13 +1026,13 @@ onUnmounted(() => {
 
 .badge {
   position: absolute;
-  right: -4px;
-  bottom: -4px;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 5px;
-  border-radius: 10px;
-  font-size: 11px;
+  right: 2px;
+  bottom: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 10px;
   font-weight: bold;
   background: var(--danger);
   color: white;
@@ -878,10 +1041,48 @@ onUnmounted(() => {
   justify-content: center;
   border: 2px solid var(--bg-sidebar);
   z-index: 10;
+  border-style: solid;
+}
+
+.badge.hidden {
+  display: none;
+}
+
+.message-popover {
+  position: absolute;
+  top: 0;
+  left: calc(100% - 12px);
+  z-index: 30;
+  width: min(384px, calc(100vw - 88px));
+  box-sizing: border-box;
+  padding-left: 24px;
+}
+
+.message-popover :deep(.message-panel) {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
+
+@media (max-width: 480px) {
+  .message-popover {
+    left: calc(100% - 8px);
+    width: calc(100vw - 82px);
+    padding-left: 16px;
+  }
+
+  .message-popover :deep(.message-panel) {
+    width: 100%;
+    min-width: 0;
+  }
 }
 
 .logo-text {
   display: block;
+  max-width: 80px;
+  overflow-wrap: anywhere;
+  text-align: center;
+  line-height: 1.2;
 }
 
 .nav-icons {
@@ -1009,16 +1210,6 @@ onUnmounted(() => {
   box-shadow: 0 0 8px var(--success);
 }
 
-.connection-badge.camera.connected {
-  background: rgba(6, 182, 212, 0.1);
-  color: #06b6d4;
-}
-
-.connection-badge.camera.connected .status-dot {
-  background: #06b6d4;
-  box-shadow: 0 0 8px #06b6d4;
-}
-
 /* 数据卡片网格 */
 .metrics-grid {
   display: grid;
@@ -1125,6 +1316,7 @@ onUnmounted(() => {
 .action-buttons {
   display: flex;
   gap: 3px;
+  justify-content: center;
 }
 
 .action-btn {
@@ -1191,6 +1383,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  align-items: center;
 }
 
 .jog-btn {
@@ -1243,6 +1436,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  align-items: center;
 }
 
 .data-btn {
@@ -1305,18 +1499,25 @@ onUnmounted(() => {
 }
 
 .close-btn {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #f8fafc;
   cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
+  padding: 6px;
+  border-radius: 6px;
   transition: all 0.2s;
+  font-size: 18px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .close-btn:hover {
-  background: rgba(255,255,255,0.05);
-  color: var(--text-primary);
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #f87171;
 }
 
 .modal-body {
@@ -1328,6 +1529,9 @@ onUnmounted(() => {
   border-radius: 8px;
   padding: 16px;
   border: 1px solid #334155;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .device-panel + .device-panel {
@@ -1336,7 +1540,7 @@ onUnmounted(() => {
 
 .panel-title {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
   margin-bottom: 12px;
   font-size: 14px;
@@ -1344,23 +1548,45 @@ onUnmounted(() => {
   color: #f8fafc;
 }
 
+.select-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 12px;
+  align-items: center;
+}
+
+.select-row .device-select {
+  flex: 1;
+  margin-bottom: 0;
+}
+
 .refresh-btn {
-  background: transparent;
-  border: none;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid #334155;
   color: var(--text-muted);
   cursor: pointer;
   padding: 4px;
-  border-radius: 4px;
+  border-radius: 8px;
   transition: all 0.2s;
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
 }
 
 .refresh-btn:hover:not(:disabled) {
-  background: rgba(255,255,255,0.05);
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.4);
   color: var(--text-primary);
 }
 
 .refresh-btn:disabled {
   cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .refresh-btn .ri-refresh-line.spinning {
@@ -1438,6 +1664,7 @@ onUnmounted(() => {
 .project-modal {
   /* width: 80%;
   height: 90%; */
+  height: 80vh;
   display: flex;
   flex-direction: column;
 }
@@ -1467,18 +1694,66 @@ onUnmounted(() => {
 }
 
 .project-modal .close-btn {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #f8fafc;
   cursor: pointer;
   padding: 6px;
-  border-radius: 4px;
+  border-radius: 6px;
   transition: all 0.2s;
   font-size: 18px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .project-modal .close-btn:hover {
-  background: rgba(255,255,255,0.05);
-  color: var(--text-primary);
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #f87171;
+}
+
+/* 系统设置模态框 */
+.system-modal {
+  width: 720px;
+  height: 80vh;
+  max-width: 92vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  background: #0f172a;
+  border-radius: 10px;
+  border: 1px solid #334155;
+  overflow: hidden;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+.system-modal .modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #334155;
+  flex-shrink: 0;
+}
+
+.system-modal .modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+  color: #f8fafc;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.system-modal-body {
+  flex: 1;
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 </style>

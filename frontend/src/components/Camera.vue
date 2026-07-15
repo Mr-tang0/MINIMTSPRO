@@ -268,7 +268,7 @@
     <div v-if="showCalibrationModal" class="modal-overlay" @click.self="showCalibrationModal = false">
       <div class="calibration-modal">
         <div class="modal-header">
-          <h3>相机标定 - 设置棋盘格参数</h3>
+          <h3>相机/位姿标定 - 设置棋盘格参数</h3>
           <button class="close-btn" @click="showCalibrationModal = false">×</button>
         </div>
         <div class="modal-body">
@@ -298,24 +298,7 @@
 <script setup>
 import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
 import { Events } from '@wailsio/runtime'
-import { 
-  GetCameraParams,
-  SetExposureAuto,
-  SetExposureTime,
-  SetGainAuto,
-  SetGain,
-  SetDigitalGainEnabled,
-  SetDigitalGain,
-  SetBalanceWhiteAuto,
-  SetWhiteBalanceRed,
-  SetGammaEnabled,
-  SetGamma,
-  SetCalibrationPattern,
-  OpenCameraCalibration,
-  OpenPoseCalibration,
-  ClearCameraCalibration,
-  ClearPoseCalibration,
-} from "../../bindings/changeme/backend/hikcameraservice";
+import * as HIKCameraService from "../../bindings/MINIMTSPRO/backend/hikcameraservice";
 
 
 
@@ -339,11 +322,11 @@ const openCalibrationModal = (action) => {
 const confirmCalibration = async () => {
   showCalibrationModal.value = false
   try {
-    await SetCalibrationPattern(calibrationRows.value, calibrationCols.value, calibrationSquareSize.value)
+    await HIKCameraService.SetCalibrationPattern(calibrationRows.value, calibrationCols.value, calibrationSquareSize.value)
     if (calibrationAction.value === 'pose') {
-      await OpenPoseCalibration()
+      await HIKCameraService.OpenPoseCalibration()
     } else {
-      await OpenCameraCalibration()
+      await HIKCameraService.OpenCameraCalibration()
     }
   } catch (err) {
     console.error('打开棋盘格角点调整页失败:', err)
@@ -354,7 +337,7 @@ const confirmCalibration = async () => {
 const clearCalibration = async () => {
   if (!confirm('确定要清除所有标定数据吗？')) return
   try {
-    await ClearCalibration()
+    await HIKCameraService.ClearCameraCalibration()
     calibrationImageCount.value = 0
   } catch (err) {
     console.error('清除标定失败:', err)
@@ -364,7 +347,7 @@ const clearCalibration = async () => {
 const clearPoseCalibration = async () => {
   if (!confirm('确定要清除位姿标定吗？')) return
   try {
-    await ClearPoseCalibration()
+    await HIKCameraService.ClearPoseCalibration()
   } catch (err) {
     console.error('清除位姿标定失败:', err)
   }
@@ -441,7 +424,7 @@ const showCameraFrame = (payload) => {
 }
 
 const loadCameraParams = async () => {
-  const params = await GetCameraParams()
+  const params = await HIKCameraService.GetCameraParams()
 
   cameraParams.exposure.mode = enumModeToFrontend(params.exposureAuto)
   cameraParams.exposure.value = params.exposureTime
@@ -471,9 +454,9 @@ onUnmounted(() => {
 
 const applyExposureAuto = async () => {
   try {
-    await SetExposureAuto(cameraParams.exposure.mode)
+    await HIKCameraService.SetExposureAuto(cameraParams.exposure.mode)
     if (cameraParams.exposure.mode === 'manual') {
-      await SetExposureTime(cameraParams.exposure.value)
+      await HIKCameraService.SetExposureTime(cameraParams.exposure.value)
     }
   } catch (err) {
     console.error(err)
@@ -485,7 +468,7 @@ const applyExposureTime = async () => {
     return
   }
   try {
-    await SetExposureTime(cameraParams.exposure.value)
+    await HIKCameraService.SetExposureTime(cameraParams.exposure.value)
   } catch (err) {
     console.error(err)
   }
@@ -493,9 +476,9 @@ const applyExposureTime = async () => {
 
 const applyGainAuto = async () => {
   try {
-    await SetGainAuto(cameraParams.gain.mode)
+    await HIKCameraService.SetGainAuto(cameraParams.gain.mode)
     if (cameraParams.gain.mode === 'manual') {
-      await SetGain(cameraParams.gain.value)
+      await HIKCameraService.SetGain(cameraParams.gain.value)
     }
   } catch (err) {
     console.error(err)
@@ -507,7 +490,7 @@ const applyGain = async () => {
     return
   }
   try {
-    await SetGain(cameraParams.gain.value)
+    await HIKCameraService.SetGain(cameraParams.gain.value)
   } catch (err) {
     console.error(err)
   }
@@ -516,9 +499,9 @@ const applyGain = async () => {
 const applyDigitalGainMode = async () => {
   try {
     const enabled = cameraParams.digitalGain.mode === 'manual'
-    await SetDigitalGainEnabled(enabled)
+    await HIKCameraService.SetDigitalGainEnabled(enabled)
     if (enabled) {
-      await SetDigitalGain(cameraParams.digitalGain.value)
+      await HIKCameraService.SetDigitalGain(cameraParams.digitalGain.value)
     }
   } catch (err) {
     console.error(err)
@@ -530,7 +513,7 @@ const applyDigitalGain = async () => {
     return
   }
   try {
-    await SetDigitalGain(cameraParams.digitalGain.value)
+    await HIKCameraService.SetDigitalGain(cameraParams.digitalGain.value)
   } catch (err) {
     console.error(err)
   }
@@ -538,9 +521,9 @@ const applyDigitalGain = async () => {
 
 const applyBalanceWhiteAuto = async () => {
   try {
-    await SetBalanceWhiteAuto(cameraParams.whiteBalance.mode)
+    await HIKCameraService.SetBalanceWhiteAuto(cameraParams.whiteBalance.mode)
     if (cameraParams.whiteBalance.mode === 'manual') {
-      await SetWhiteBalanceRed(cameraParams.whiteBalance.value)
+      await HIKCameraService.SetWhiteBalanceRed(cameraParams.whiteBalance.value)
     }
   } catch (err) {
     console.error(err)
@@ -552,7 +535,7 @@ const applyWhiteBalance = async () => {
     return
   }
   try {
-    await SetWhiteBalanceRed(cameraParams.whiteBalance.value)
+    await HIKCameraService.SetWhiteBalanceRed(cameraParams.whiteBalance.value)
   } catch (err) {
     console.error(err)
   }
@@ -560,9 +543,9 @@ const applyWhiteBalance = async () => {
 
 const applyGammaEnabled = async () => {
   try {
-    await SetGammaEnabled(cameraParams.gamma.enabled)
+    await HIKCameraService.SetGammaEnabled(cameraParams.gamma.enabled)
     if (cameraParams.gamma.enabled) {
-      await SetGamma(cameraParams.gamma.value)
+      await HIKCameraService.SetGamma(cameraParams.gamma.value)
     }
   } catch (err) {
     console.error(err)
@@ -574,7 +557,7 @@ const applyGamma = async () => {
     return
   }
   try {
-    await SetGamma(cameraParams.gamma.value)
+    await HIKCameraService.SetGamma(cameraParams.gamma.value)
   } catch (err) {
     console.error(err)
   }
@@ -1142,5 +1125,35 @@ const applyGamma = async () => {
 
 .modal-footer .btn {
   flex: 1;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-footer .btn.primary {
+  background: #3b82f6;
+  color: white;
+}
+
+.modal-footer .btn.primary:hover {
+  background: #2563eb;
+}
+
+.modal-footer .btn.secondary {
+  background: #1e293b;
+  color: #cbd5e1;
+  border: 1px solid #334155;
+}
+
+.modal-footer .btn.secondary:hover {
+  background: #334155;
+  color: #f1f5f9;
 }
 </style>

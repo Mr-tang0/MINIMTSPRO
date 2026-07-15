@@ -1,7 +1,7 @@
 package backend
 
 import (
-	"changeme/backend/extensometer"
+	"MINIMTSPRO/backend/extensometer"
 	"testing"
 
 	"gocv.io/x/gocv"

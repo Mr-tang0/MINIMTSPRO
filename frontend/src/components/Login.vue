@@ -112,7 +112,8 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { LoginService } from '../../bindings/changeme/backend/'
+import * as LoginService from '../../bindings/MINIMTSPRO/backend/loginservice'
+import * as AppService from '../../bindings/MINIMTSPRO/backend/appservice'
 import { Window } from '@wailsio/runtime'
 
 const isRegister = ref(false)
@@ -162,7 +163,7 @@ const handleLogin = async () => {
       errorMsg.value = '用户名或密码错误'
       return
     }
-    await LoginService.CallMINIMTSWindow()
+    await AppService.CallMINIMTSWindow()
     try {
       Window.Close()
     } catch(e) {

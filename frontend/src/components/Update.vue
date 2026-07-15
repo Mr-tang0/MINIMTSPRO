@@ -24,7 +24,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { GetCachedRelease } from "../../bindings/changeme/backend/updateservice";
+import * as UpdateService from "../../bindings/MINIMTSPRO/backend/updateservice";
 import { Browser, Window } from '@wailsio/runtime'
 
 
@@ -38,7 +38,7 @@ const updateInfo = ref({
 
 onMounted(async () => {
     try{
-        const release = await GetCachedRelease()
+        const release = await UpdateService.GetCachedRelease()
 
         if (release) {
             updateInfo.value.tagName = release.tag_name || release.TagName || '无'

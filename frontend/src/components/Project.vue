@@ -97,7 +97,7 @@
             <label>准静态数据保存路径</label>
             <div class="path-picker">
               <input v-model="form.filePath" type="text" readonly />
-              <button class="btn-picker" @click="handleSelectDir('filePath')"><i class="ri-folder-open-fill"></i></button>
+              <button class="btn-picker" @click="handleSelectDir('filePath')">...</button>
             </div>
           </div>
           <div class="form-item flex-1">
@@ -134,7 +134,7 @@
                   <label>图片保存路径</label>
                   <div class="path-picker">
                     <input v-model="form.dicFolder" type="text" placeholder="选择保存目录" />
-                    <button class="btn-picker" @click="handleSelectDir('dicFolder')"><i class="ri-image-add-fill"></i></button>
+                    <button class="btn-picker" @click="handleSelectDir('dicFolder')">...</button>
                   </div>
                 </div>
                 <div class="form-item mt-5">
@@ -225,8 +225,8 @@
 <script setup>
 import { reactive, ref, computed, onMounted, onUnmounted } from 'vue';
 import { Events } from '@wailsio/runtime';
-import { GetActiveConfig, SaveProjectConfig, SelectDirectory } from '../../bindings/changeme/backend/projectservice';
-import { OpenROISelector, OpenDirectionSelector, OpenCalibrationSelector, SetResolutionRatio } from '../../bindings/changeme/backend/hikcameraservice';
+import * as ProjectService from '../../bindings/MINIMTSPRO/backend/projectservice';
+import * as HIKCameraService from '../../bindings/MINIMTSPRO/backend/hikcameraservice';
 
 const props = defineProps({
   isCameraConnected: {
@@ -290,7 +290,7 @@ const handleSpeedManualChange = () => {
 
 const handleSelectDir = async (field) => {
   try {
-    const path = await SelectDirectory();
+    const path = await ProjectService.SelectDirectory();
     if (path) form[field] = path;
   } catch (err) {
     console.error("Path selection failed", err);
@@ -308,25 +308,28 @@ const formatROI = (roi) => {
 
 const openMarkerSelector = async (label) => {
   try {
-    await OpenROISelector(label)
+    await HIKCameraService.OpenROISelector(label)
   } catch (err) {
-    alert(err)
+    console.error("Failed to open ROI selector:", err);
+    // alert(err)
   }
 }
 
 const openDirectionSelector = async () => {
   try {
-    await OpenDirectionSelector()
+    await HIKCameraService.OpenDirectionSelector()
   } catch (err) {
-    alert(err)
+    console.error("Failed to open direction selector:", err);
+    // alert(err)
   }
 }
 
 const openCalibration = async () => {
   try {
-    await OpenCalibrationSelector()
+    await HIKCameraService.OpenCalibrationSelector()
   } catch (err) {
-    alert(err)
+    console.error("Failed to open calibration selector:", err);
+    // alert(err)
   }
 }
 
@@ -361,13 +364,14 @@ const handleCalibrationSelected = (payload) => {
 
 const handleSubmit = async() => {
   try {
-    await SaveProjectConfig(form);
+    await ProjectService.SaveProjectConfig(form);
     if (form.pixLength && form.physLength) {
-      await SetResolutionRatio(form.pixLength, form.physLength)
+      await HIKCameraService.SetResolutionRatio(form.pixLength, form.physLength)
     }
     emit('submit', form);
   } catch (err) {
-    alert("项目保存失败: " + err);
+    console.error("Failed to save project config:", err);
+    // alert("项目保存失败: " + err);
   }
 };
 
@@ -376,7 +380,7 @@ onMounted(async () => {
   offDirectionSelected = Events.On('hik_direction_selected', handleDirectionSelected)
   offCalibrationSelected = Events.On('hik_calibration_selected', handleCalibrationSelected)
   try {
-    const config = await GetActiveConfig();
+    const config = await ProjectService.GetActiveConfig();
     if (config) {
       Object.assign(form, config);
     }

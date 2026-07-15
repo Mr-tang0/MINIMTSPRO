@@ -41,12 +41,12 @@ func NewSystemService() *SystemService {
 			WeighResolution: 1.0, // 默认称重模块分辨率 (单位: kg)
 			WeighDirection:  1,   // 默认称重模块方向
 
-			LimitID:        4,     // 默认限位模块ID
-			LimitEnabled:   false, // 默认不启用限位模块
-			LimitDirection: 2,     // 默认限位模块方向：CW对应的端口
+			LimitID:        4,    // 默认限位模块ID
+			LimitEnabled:   true, // 默认启用限位模块
+			LimitDirection: 2,    // 默认限位模块方向：CW对应的端口
 
-			TempID:      5,    // 默认温度模块ID
-			TempEnabled: true, // 默认不启用温度模块
+			TempID:      5,     // 默认温度模块ID
+			TempEnabled: false, // 默认不启用温度模块
 		},
 	}
 	s.GetConfigFromLocalFile()
