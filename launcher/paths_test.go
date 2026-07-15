@@ -5,6 +5,13 @@ import (
 	"testing"
 )
 
+func TestExecutableDirectoryRejectsEmptyPath(t *testing.T) {
+	_, err := executableDirectory("")
+	if err == nil {
+		t.Fatal("executableDirectory(\"\") error = nil, want non-nil")
+	}
+}
+
 func TestRuntimePathsAreRelativeToExecutableDirectory(t *testing.T) {
 	appDir := filepath.Join(`C:\Program Files`, "MINIMTS")
 
