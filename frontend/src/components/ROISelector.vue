@@ -410,7 +410,6 @@ const confirm = async () => {
   }
 
 
-
   if (isCornerCalibrationMode.value) {
     if (corners.value.length === 0) return
     try {

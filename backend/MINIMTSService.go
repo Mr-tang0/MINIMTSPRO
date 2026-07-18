@@ -587,8 +587,6 @@ func (m *MINIMTSService) updateLimitStatus() error {
 	if !system.config.LimitEnabled {
 		return nil
 	}
-	// fmt.Println("获取限位状态,限位ID:", system.config.LimitID)
-	// application.Get().Event.Emit("system_message", "限位2触发")
 
 	resp, err := m.comm.SendModbus(system.config.LimitID, 0x04, 0x00, 0x02)
 	// fmt.Println("获取限位状态:", resp)
@@ -599,17 +597,27 @@ func (m *MINIMTSService) updateLimitStatus() error {
 
 	if len(resp) >= 8 {
 		m.statusMu.Lock()
-		if resp[4] == 0x01 {
+		if resp[4] == 0x01 { //限位1
 			if m.MTSStatus.Limit == 0 {
 				fmt.Println("限位1触发")
-				application.Get().Event.Emit("system_message", "限位1触发")
+				switch system.config.LimitDirection {
+				case 1:
+					application.Get().Event.Emit("system_message", "正向限位触发")
+				case -1:
+					application.Get().Event.Emit("system_message", "反向限位触发")
+				}
 				m.MTSStatus.Limit = 1
 				m.MotorStop()
 			}
-		} else if resp[6] == 0x01 {
+		} else if resp[6] == 0x01 { //限位2
 			if m.MTSStatus.Limit == 0 {
 				fmt.Println("限位2触发")
-				application.Get().Event.Emit("system_message", "限位2触发")
+				switch system.config.LimitDirection {
+				case 1:
+					application.Get().Event.Emit("system_message", "反向限位触发")
+				case -1:
+					application.Get().Event.Emit("system_message", "正向限位触发")
+				}
 				m.MTSStatus.Limit = 2
 				m.MotorStop()
 			}

@@ -20,7 +20,7 @@
             <input v-model.number="form.motor_id" type="number" min="0" max="255" />
           </div>
           <div class="form-item">
-            <label>电机分辨率 (mm)</label>
+            <label>电机分辨率 (pulse/mm)</label>
             <input v-model.number="form.motor_resolution" type="number" step="0.00001" />
           </div>
           <div class="form-item">
@@ -35,18 +35,18 @@
 
       <!-- 称重模块 -->
       <div class="config-section">
-        <div class="section-tag color-weigh">称重模块</div>
+        <div class="section-tag color-weigh">压力模块</div>
         <div class="form-grid">
           <div class="form-item">
-            <label>称重模块 ID</label>
+            <label>压力模块 ID</label>
             <input v-model.number="form.weigh_id" type="number" min="0" max="255" />
           </div>
           <div class="form-item">
-            <label>称重分辨率 (kg)</label>
+            <label>压力分辨率 (unit/N)</label>
             <input v-model.number="form.weigh_resolution" type="number" step="0.0001" />
           </div>
           <div class="form-item">
-            <label>称重方向</label>
+            <label>压力方向</label>
             <select v-model.number="form.weigh_direction">
               <option :value="1">正向 (+1)</option>
               <option :value="-1">反向 (-1)</option>
@@ -66,9 +66,9 @@
           <div class="form-item">
             <label>限位方向</label>
             <select v-model.number="form.limit_direction">
-              <option :value="1">正向 (+1)</option>
-              <option :value="-1">反向 (-1)</option>
-              <option :value="2">CW 端口 (2)</option>
+              <option :value="1">正向(端口1)&反向(端口2)</option>
+              <option :value="-1">正向(端口2)&反向(端口1)</option>
+
             </select>
           </div>
           <div class="form-item checkbox-item">

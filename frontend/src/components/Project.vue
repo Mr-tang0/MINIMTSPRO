@@ -116,11 +116,11 @@
             <div class="left-controls">
               <label class="check-item">
                 <input type="checkbox" v-model="form.dicEnable" />
-                <span class="mark"></span> 相机拍摄
+                <span class="mark"></span> 相机拍摄图片
               </label>
               <label class="check-item">
                 <input type="checkbox" v-model="form.externalTrigger" />
-                <span class="mark"></span> 发射触发信号
+                <span class="mark"></span> 发射外触发信号
               </label>
             </div>
             <div class="right-display">

@@ -514,7 +514,6 @@ func (s *HIKCameraService) SetROI(label string, rect ROIRect) error {
 		Width:  rect.Width,
 		Height: rect.Height,
 	})
-
 	s.roiMu.Lock()
 	defer s.roiMu.Unlock()
 	switch label {
@@ -567,9 +566,9 @@ func (s *HIKCameraService) OpenDirectionSelector() error {
 // SetDirectionLineFromConfig 从配置文件设置方向线段
 func (s *HIKCameraService) SetDirectionLineFromConfig(line LineDirection) {
 	s.directionLineMu.Lock()
-	defer s.directionLineMu.Unlock()
 	s.directionLine = line
 	s.dirLineReady = false // 需要重新计算初始垂距
+	s.directionLineMu.Unlock()
 }
 
 // SetDirectionLine 设置方向线段

@@ -24,7 +24,14 @@
         </div>
       </section>
 
-      <aside class="params-sidebar">
+      <button 
+        class="sidebar-toggle" 
+        :class="{ 'collapsed': !sidebarVisible }"
+        @click="sidebarVisible = !sidebarVisible"
+      >
+        <span class="arrow-icon"></span>
+      </button>
+      <aside class="params-sidebar" :class="{ 'hidden': !sidebarVisible }">
         <div class="sidebar-title">
           <i class="ri-equalizer-fill"></i>
           <span>相机控制参数</span>
@@ -305,6 +312,7 @@ import * as HIKCameraService from "../../bindings/MINIMTSPRO/backend/hikcamerase
 const streamImgRef = ref(null)
 const isOnline = ref(false)
 const currentTime = ref(new Date())
+const sidebarVisible = ref(true)
 let offCameraFrame
 
 const showCalibrationModal = ref(false)
@@ -438,10 +446,18 @@ const loadCameraParams = async () => {
   cameraParams.gamma.value = params.gamma
 }
 
+const handleResize = () => {
+  if (window.innerWidth < 1024) {
+    sidebarVisible.value = false
+  }
+}
+
 onMounted(async () => {
   timeTicker = setInterval(updateTime, 1000)
   offCameraFrame = Events.On('hik_camera_frame', showCameraFrame)
   offCalibrationAdded = Events.On('calibration_added', handleCalibrationAdded)
+  window.addEventListener('resize', handleResize)
+  handleResize()
   await loadCameraParams()
 })
 
@@ -450,6 +466,7 @@ onUnmounted(() => {
   clearInterval(timeTicker)
   offCameraFrame?.()
   offCalibrationAdded?.()
+  window.removeEventListener('resize', handleResize)
 })
 
 const applyExposureAuto = async () => {
@@ -612,6 +629,7 @@ const applyGamma = async () => {
   display: flex;
   overflow: hidden;
   min-width: 0;
+  position: relative;
 }
 
 /* 视频预览区 */
@@ -726,6 +744,69 @@ const applyGamma = async () => {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  position: relative;
+  transition: width 0.3s ease;
+  overflow: hidden;
+}
+
+.params-sidebar.hidden {
+  width: 0;
+  border-left: none;
+}
+
+.sidebar-toggle {
+  position: absolute;
+  right: 260px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 60px;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  /* transition: all 0.3s ease; */
+  z-index: 10;
+}
+
+.sidebar-toggle:hover {
+  background: #1e293b;
+  color: #f1f5f9;
+}
+
+.sidebar-toggle.collapsed {
+  right: 0;
+  border-radius: 0 8px 8px 0;
+  border-right: 1px solid #1e293b;
+  border-left: none;
+}
+
+.arrow-icon {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-right: 10px solid #94a3b8;
+  transition: border-color 0.2s ease;
+}
+
+.sidebar-toggle:hover .arrow-icon {
+  border-right-color: #f1f5f9;
+}
+
+.sidebar-toggle.collapsed .arrow-icon {
+  border-right-color: transparent;
+  border-left: 10px solid #94a3b8;
+}
+
+.sidebar-toggle.collapsed:hover .arrow-icon {
+  border-left-color: #f1f5f9;
 }
 
 .sidebar-title {

@@ -32,7 +32,7 @@ type DICParam struct {
 	YoungMod             float64 // 杨氏模量
 }
 
-// DefaultDICParam 返回默认 DIC 参数
+// DefaultDICParam 返回默认 DIC 参数,未来可能交给用户配置
 func DefaultDICParam() *DICParam {
 	return &DICParam{
 		PreprocessEnabled:    true,

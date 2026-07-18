@@ -374,11 +374,14 @@ func (l *LoginService) readEnvFileAt(path string) map[string]string {
 
 func (l *LoginService) findEnvPath() (string, error) {
 	wd, err := os.Getwd()
+	fmt.Println(wd)
 	if err != nil {
 		return "", err
 	}
 	for {
 		path := filepath.Join(wd, ".env")
+		fmt.Println(path)
+
 		if _, err := os.Stat(path); err == nil {
 			return path, nil
 		}
@@ -388,7 +391,7 @@ func (l *LoginService) findEnvPath() (string, error) {
 		}
 		wd = parent
 	}
-	return "", fmt.Errorf("未找到根目录 .env 文件")
+	return "", fmt.Errorf("在 %s 未找到根目录 .env 文件", wd)
 }
 
 func (l *LoginService) getLastLoginPath() (string, error) {
